@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { WORLD_HALF, GRID_DIVISIONS, START_MASS } from './constants.js';
+import { WORLD_HALF, GRID_DIVISIONS, START_MASS, clamp } from './constants.js';
 import { Game } from './game.js';
+import { initSound, sounds } from './sound.js';
 
 // ---------- Renderer & Szene ----------
 
@@ -41,11 +42,12 @@ window.game = game; // für Debugging in der Konsole
 let viewH = 900;
 let camX = 0;
 let camY = 0;
+let zoom = 1; // manueller Zoom-Faktor (Mausrad), multipliziert den Auto-Zoom
 
 function updateCamera(dt) {
   const focus = game.playerFocus();
   if (focus) {
-    const targetH = Math.max(
+    const targetH = zoom * Math.max(
       700,
       700 * Math.pow(focus.totalMass / START_MASS, 0.15),
       (focus.spread + focus.maxR * 2) * 2.4
@@ -71,10 +73,17 @@ window.addEventListener('resize', () => {
 
 const ndc = { x: 0, y: 0 };
 
-window.addEventListener('pointermove', (e) => {
+function updatePointer(e) {
   ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
   ndc.y = -((e.clientY / window.innerHeight) * 2 - 1);
-});
+}
+window.addEventListener('pointermove', updatePointer);
+// Auch pointerdown, damit die Zelle auf Touch-Geräten dem Finger folgt
+window.addEventListener('pointerdown', updatePointer);
+
+window.addEventListener('wheel', (e) => {
+  zoom = clamp(zoom * Math.exp(e.deltaY * 0.001), 0.6, 1.8);
+}, { passive: true });
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
@@ -86,6 +95,28 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Touch-Buttons (nur bei groben Zeigern sichtbar, siehe CSS)
+const touchControls = document.getElementById('touch-controls');
+for (const ev of ['pointerdown', 'pointermove']) {
+  // Berührungen auf den Buttons dürfen nicht das Bewegungsziel setzen
+  touchControls.addEventListener(ev, (e) => e.stopPropagation());
+}
+document.getElementById('split-btn').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  game.splitPlayer();
+});
+const ejectBtn = document.getElementById('eject-btn');
+let ejectTimer = 0;
+ejectBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  game.ejectPlayer();
+  clearInterval(ejectTimer);
+  ejectTimer = setInterval(() => game.ejectPlayer(), 140);
+});
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+  ejectBtn.addEventListener(ev, () => clearInterval(ejectTimer));
+}
+
 // ---------- UI ----------
 
 const startOverlay = document.getElementById('start-overlay');
@@ -96,6 +127,7 @@ const leaderboardList = document.getElementById('leaderboard-list');
 
 function startGame() {
   const name = nameInput.value.trim() || 'Namenloser Blob';
+  initSound(); // braucht eine Nutzer-Geste, deshalb hier
   game.spawnPlayer(name);
   startOverlay.classList.add('hidden');
   deathOverlay.classList.add('hidden');
@@ -110,12 +142,83 @@ nameInput.addEventListener('keydown', (e) => {
   e.stopPropagation();
 });
 
+// ---------- Highscore & Death-Screen ----------
+
+const HIGHSCORE_KEY = 'agar-highscore';
+let highscore = Number(localStorage.getItem(HIGHSCORE_KEY)) || 0;
+
+function showStartHighscore() {
+  if (highscore <= 0) return;
+  document.getElementById('start-highscore-value').textContent = highscore;
+  document.getElementById('start-highscore').classList.remove('hidden');
+}
+showStartHighscore();
+
 game.onPlayerDeath = (stats) => {
+  sounds.death();
+  document.getElementById('killer-name').textContent = stats.killer || '???';
   document.getElementById('final-mass').textContent = stats.mass;
   document.getElementById('best-mass').textContent = stats.maxMass;
+  document.getElementById('cells-eaten').textContent = stats.cellsEaten;
   document.getElementById('time-alive').textContent = `${stats.timeAlive}s`;
+  const isRecord = stats.maxMass > highscore;
+  if (isRecord) {
+    highscore = stats.maxMass;
+    localStorage.setItem(HIGHSCORE_KEY, String(highscore));
+    showStartHighscore();
+  }
+  document.getElementById('death-highscore').textContent = highscore;
+  document.getElementById('new-record').classList.toggle('hidden', !isRecord);
   deathOverlay.classList.remove('hidden');
 };
+
+// ---------- Sound-Ereignisse ----------
+
+let lastFoodSound = 0;
+
+game.onEvent = (type) => {
+  if (type === 'food') {
+    // Futter-Plopp drosseln, sonst knattert es bei Fressorgien
+    const now = performance.now();
+    if (now - lastFoodSound < 80) return;
+    lastFoodSound = now;
+  }
+  sounds[type]?.();
+};
+
+// ---------- Minimap ----------
+
+const minimap = document.getElementById('minimap');
+const minimapCtx = minimap.getContext('2d');
+
+function drawMinimapDot(x, y, radius, style) {
+  minimapCtx.fillStyle = style;
+  minimapCtx.beginPath();
+  minimapCtx.arc(x, y, radius, 0, Math.PI * 2);
+  minimapCtx.fill();
+}
+
+function drawMinimap() {
+  const size = minimap.width;
+  // Welt- zu Kartenkoordinaten; Canvas-y zeigt nach unten
+  const mapX = (x) => ((x + WORLD_HALF) / (2 * WORLD_HALF)) * size;
+  const mapY = (y) => size - ((y + WORLD_HALF) / (2 * WORLD_HALF)) * size;
+  minimapCtx.clearRect(0, 0, size, size);
+
+  for (const v of game.viruses) drawMinimapDot(mapX(v.x), mapY(v.y), 2, '#33cc33');
+  for (const c of game.cells) {
+    if (c.owner !== 'player') drawMinimapDot(mapX(c.x), mapY(c.y), 2, 'rgba(255,255,255,0.45)');
+  }
+  const playerStyle = `#${game.playerColor.getHexString()}`;
+  for (const c of game.playerCells()) drawMinimapDot(mapX(c.x), mapY(c.y), 3, playerStyle);
+
+  // Aktueller Kameraausschnitt
+  const aspect = window.innerWidth / window.innerHeight;
+  const w = (viewH * aspect / (2 * WORLD_HALF)) * size;
+  const h = (viewH / (2 * WORLD_HALF)) * size;
+  minimapCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+  minimapCtx.strokeRect(mapX(camX) - w / 2, mapY(camY) - h / 2, w, h);
+}
 
 let leaderboardTimer = 0;
 
@@ -160,6 +263,7 @@ function loop() {
   game.update(dt);
   updateCamera(dt);
   updateHUD(dt);
+  drawMinimap();
   renderer.render(scene, camera);
 }
 

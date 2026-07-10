@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
-    #app { position: fixed; inset: 0; }
+    #app { position: fixed; inset: 0; touch-action: none; }
     canvas { display: block; }
 
     .panel {
@@ -28,6 +28,31 @@
       position: fixed; right: 16px; top: 16px;
       padding: 12px 16px; min-width: 190px;
       pointer-events: none;
+    }
+
+    #minimap {
+      position: fixed; right: 16px; bottom: 16px;
+      pointer-events: none;
+    }
+
+    #touch-controls {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+      display: none; gap: 18px; z-index: 5;
+      touch-action: none;
+    }
+    #touch-controls button {
+      width: 74px; height: 74px; border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      background: rgba(20, 30, 40, 0.55); color: #fff;
+      font-size: 13px; font-weight: 700; font-family: inherit;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      user-select: none; -webkit-user-select: none; touch-action: none;
+    }
+    #touch-controls button:active { background: rgba(67, 160, 71, 0.7); }
+    @media (pointer: coarse) {
+      #touch-controls { display: flex; }
+      /* Platz für die Touch-Buttons schaffen */
+      #minimap { bottom: 110px; }
     }
     #leaderboard h3 { font-size: 15px; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
     #leaderboard ol { list-style: none; font-size: 13px; line-height: 1.7; }
@@ -73,6 +98,13 @@
     }
     .card .stats { margin: 6px 0 20px; color: #455a64; font-size: 15px; line-height: 1.9; }
     .card .stats b { color: #263238; }
+    .card .highscore { margin-top: 14px; color: #78909c; font-size: 14px; }
+    .card .highscore b { color: #455a64; }
+    .card .record {
+      background: #ffd54f; color: #5d4037; font-weight: 700;
+      border-radius: 6px; padding: 2px 8px; font-size: 12px; margin-left: 4px;
+    }
+    .card .hidden, .record.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -85,12 +117,20 @@
     <ol id="leaderboard-list"></ol>
   </div>
 
+  <canvas id="minimap" class="panel" width="150" height="150"></canvas>
+
+  <div id="touch-controls">
+    <button id="eject-btn" type="button">Masse</button>
+    <button id="split-btn" type="button">Teilen</button>
+  </div>
+
   <div id="start-overlay" class="overlay">
     <div class="card">
       <h1>Agar <span class="green">Klon</span></h1>
       <p class="sub">Friss oder werde gefressen</p>
       <input id="name-input" type="text" maxlength="15" placeholder="Dein Name" autocomplete="off" />
       <button id="play-btn">Spielen</button>
+      <p id="start-highscore" class="highscore hidden">🏆 Bestwert: <b id="start-highscore-value">0</b></p>
       <div class="controls">
         <div>🖱️ <b>Maus</b> — bewegen</div>
         <div><kbd>Leertaste</kbd> — teilen</div>
@@ -105,9 +145,12 @@
     <div class="card">
       <h1>Gefressen! 💀</h1>
       <div class="stats">
+        Gefressen von: <b id="killer-name">?</b><br />
         Endmasse: <b id="final-mass">0</b><br />
         Größte Masse: <b id="best-mass">0</b><br />
-        Überlebt: <b id="time-alive">0s</b>
+        Zellen gefressen: <b id="cells-eaten">0</b><br />
+        Überlebt: <b id="time-alive">0s</b><br />
+        🏆 Bestwert: <b id="death-highscore">0</b> <span id="new-record" class="record hidden">Neuer Rekord!</span>
       </div>
       <button id="respawn-btn">Nochmal spielen</button>
     </div>

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
-// Geteilte Geometrien (Einheitskreis, per Gruppe skaliert)
-const circleGeo = new THREE.CircleGeometry(1, 48);
+// Kreissegmente pro Zelle — jede Zelle bekommt eine eigene Geometrie,
+// deren Rand pro Frame organisch wabert (siehe updateCellWobble)
+const CELL_SEGMENTS = 40;
 
 function makeVirusGeometry(spikes = 18) {
   const shape = new THREE.Shape();
@@ -55,14 +56,15 @@ function getLabelMaterial(text) {
 // die pro Frame auf den Zellradius skaliert wird.
 export function makeCellView(color, name, scene) {
   const group = new THREE.Group();
+  const geo = new THREE.CircleGeometry(1, CELL_SEGMENTS);
 
   const rim = new THREE.Mesh(
-    circleGeo,
+    geo,
     new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.78) })
   );
   group.add(rim);
 
-  const fill = new THREE.Mesh(circleGeo, new THREE.MeshBasicMaterial({ color }));
+  const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
   fill.scale.setScalar(0.93);
   fill.position.z = 0.05;
   group.add(fill);
@@ -76,11 +78,33 @@ export function makeCellView(color, name, scene) {
   }
 
   scene.add(group);
-  return { group, rim, fill, label };
+  return {
+    group, rim, fill, label, geo,
+    // Zufällige Phase/Tempo, damit nicht alle Zellen synchron wabern
+    wobblePhase: Math.random() * Math.PI * 2,
+    wobbleSpeed: 2 + Math.random() * 1.5,
+  };
+}
+
+// Lässt den Zellrand organisch wabern: Ring-Vertices der Einheitskreis-Geometrie
+// werden mit zwei überlagerten Sinuswellen radial verschoben. Ganzzahlige
+// Wellenzahlen halten die Naht (erster/letzter Ring-Vertex) geschlossen.
+export function updateCellWobble(view, time) {
+  const pos = view.geo.attributes.position;
+  const ring = pos.count - 2; // Vertex 0 = Mittelpunkt, letzter = Nahtduplikat
+  const t1 = time * view.wobbleSpeed + view.wobblePhase;
+  const t2 = time * view.wobbleSpeed * 1.7 - view.wobblePhase;
+  for (let j = 1; j < pos.count; j++) {
+    const ang = ((j - 1) / ring) * Math.PI * 2;
+    const r = 1 + 0.02 * Math.sin(ang * 5 + t1) + 0.012 * Math.sin(ang * 9 + t2);
+    pos.setXY(j, Math.cos(ang) * r, Math.sin(ang) * r);
+  }
+  pos.needsUpdate = true;
 }
 
 export function disposeCellView(view, scene) {
   scene.remove(view.group);
+  view.geo.dispose();
   view.rim.material.dispose();
   view.fill.material.dispose();
   // Label-Material bleibt im Cache (wird von Split-Zellen wiederverwendet)

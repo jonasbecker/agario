@@ -7,19 +7,26 @@ import {
   EJECT_MIN_MASS, EJECT_MASS_LOSS, EJECT_MASS_GAIN, EJECT_IMPULSE, EJECT_SELF_EAT_DELAY,
   mergeDelay,
   VIRUS_COUNT, VIRUS_MASS, VIRUS_EXPLODE_RATIO,
-  BOT_COUNT, BOT_RESPAWN_DELAY, BOT_NAMES,
-  randomCellColor, randomFoodColor, randomWorldPos, clamp,
+  VIRUS_FEED_COUNT, VIRUS_MAX, VIRUS_SHOT_IMPULSE,
+  BOT_COUNT, BOT_RESPAWN_DELAY, BOT_NAMES, MAX_BOT_CELLS,
+  randomCellColor, randomWorldPos, clamp,
 } from './constants.js';
 import { FoodPool } from './food.js';
-import { makeCellView, disposeCellView, makeVirusView, setLabelOrder } from './cell.js';
+import { ParticlePool } from './particles.js';
+import {
+  makeCellView, disposeCellView, makeVirusView, setLabelOrder, updateCellWobble,
+} from './cell.js';
 
 let nextId = 1;
+
+const VIRUS_GREEN = new THREE.Color(0x33cc33);
 
 export class Game {
   constructor(scene) {
     this.scene = scene;
     this.time = 0;
     this.food = new FoodPool(scene, FOOD_CAPACITY);
+    this.particles = new ParticlePool(scene);
     this.cells = [];
     this.viruses = [];
     this.bots = [];
@@ -31,14 +38,16 @@ export class Game {
     this.lastPlayerMass = 0;
     this.maxMass = 0;
     this.spawnTime = 0;
+    this.cellsEaten = 0;
+    this.lastKiller = null;
     this.onPlayerDeath = null;
+    this.onEvent = null;
 
     for (let i = 0; i < FOOD_COUNT; i++) this.food.spawnRandom();
 
-    const virusR = radiusFromMass(VIRUS_MASS);
     for (let i = 0; i < VIRUS_COUNT; i++) {
       const { x, y } = randomWorldPos(200);
-      this.viruses.push({ x, y, r: virusR, view: makeVirusView(scene) });
+      this.viruses.push(this.makeVirus(x, y));
     }
 
     for (let i = 0; i < BOT_COUNT; i++) {
@@ -46,7 +55,6 @@ export class Game {
         key: `bot${i}`,
         name: BOT_NAMES[i % BOT_NAMES.length],
         color: randomCellColor(),
-        cell: null,
         respawnAt: 0,
         foodTarget: -1,
         retargetAt: 0,
@@ -54,6 +62,17 @@ export class Game {
       this.bots.push(bot);
       this.spawnBot(bot);
     }
+  }
+
+  makeVirus(x, y) {
+    return {
+      x, y,
+      r: radiusFromMass(VIRUS_MASS),
+      fed: 0,              // Fütterungen seit dem letzten Schuss
+      dirX: 1, dirY: 0,    // Richtung der letzten Fütterung
+      vx: 0, vy: 0,        // Impuls frisch abgeschossener Viren
+      view: makeVirusView(this.scene),
+    };
   }
 
   // ---------- Zellen-Verwaltung ----------
@@ -88,22 +107,32 @@ export class Game {
           mass: Math.round(this.lastPlayerMass),
           maxMass: Math.round(this.maxMass),
           timeAlive: Math.round(this.time - this.spawnTime),
+          cellsEaten: this.cellsEaten,
+          killer: this.lastKiller,
         });
       }
-    } else {
-      cell.owner.cell = null;
+    } else if (!this.cells.some((c) => c.owner === cell.owner)) {
+      // Bot ist erst tot, wenn seine letzte Zelle weg ist
       cell.owner.respawnAt = this.time + BOT_RESPAWN_DELAY;
     }
   }
 
+  cellsOf(ownerKey) {
+    return this.cells.filter((c) => c.ownerKey === ownerKey);
+  }
+
+  massOf(ownerKey) {
+    let m = 0;
+    for (const c of this.cells) if (c.ownerKey === ownerKey) m += c.mass;
+    return m;
+  }
+
   playerCells() {
-    return this.cells.filter((c) => c.owner === 'player');
+    return this.cellsOf('player');
   }
 
   playerMass() {
-    let m = 0;
-    for (const c of this.cells) if (c.owner === 'player') m += c.mass;
-    return m;
+    return this.massOf('player');
   }
 
   // ---------- Spawnen ----------
@@ -134,6 +163,8 @@ export class Game {
     this.maxMass = START_MASS;
     this.lastPlayerMass = START_MASS;
     this.spawnTime = this.time;
+    this.cellsEaten = 0;
+    this.lastKiller = null;
   }
 
   spawnBot(bot) {
@@ -141,11 +172,11 @@ export class Game {
     const mass = 15 + Math.random() * 35;
     // Persönlichkeit: wie aggressiv dieser Bot Beute jagt (wird pro Leben neu gewürfelt)
     bot.aggression = 0.25 + Math.random() * 0.65;
-    bot.cell = this.createCell({
+    const cell = this.createCell({
       owner: bot, ownerKey: bot.key, name: bot.name,
       color: bot.color, mass, x, y,
     });
-    bot.cell.protectedUntil = this.time + SPAWN_PROTECTION;
+    cell.protectedUntil = this.time + SPAWN_PROTECTION;
   }
 
   // ---------- Spieler-Aktionen ----------
@@ -155,38 +186,50 @@ export class Game {
     this.mouse.y = y;
   }
 
-  splitPlayer() {
-    if (!this.playerAlive) return;
-    const existing = this.playerCells();
-    let slots = MAX_PLAYER_CELLS - existing.length;
+  // Teilt alle Zellen eines Besitzers Richtung (tx, ty) — Spieler und Bots
+  splitCells(ownerKey, tx, ty, maxCells) {
+    const existing = this.cellsOf(ownerKey);
+    let slots = maxCells - existing.length;
+    let didSplit = false;
     for (const cell of existing) {
       if (slots <= 0) break;
       if (cell.mass < MIN_SPLIT_MASS) continue;
       slots--;
+      didSplit = true;
       cell.mass /= 2;
-      const dx = this.mouse.x - cell.x;
-      const dy = this.mouse.y - cell.y;
+      const dx = tx - cell.x;
+      const dy = ty - cell.y;
       const d = Math.hypot(dx, dy) || 1;
       const nx = dx / d;
       const ny = dy / d;
       const delay = mergeDelay(cell.mass);
       cell.mergeAt = this.time + delay;
       const child = this.createCell({
-        owner: 'player', ownerKey: 'player', name: this.playerName,
-        color: this.playerColor, mass: cell.mass,
+        owner: cell.owner, ownerKey, name: cell.name,
+        color: cell.color, mass: cell.mass,
         x: cell.x + nx * cell.r * 0.2, y: cell.y + ny * cell.r * 0.2,
       });
       child.ix = nx * SPLIT_IMPULSE;
       child.iy = ny * SPLIT_IMPULSE;
       child.mergeAt = this.time + delay;
     }
+    return didSplit;
+  }
+
+  splitPlayer() {
+    if (!this.playerAlive) return;
+    if (this.splitCells('player', this.mouse.x, this.mouse.y, MAX_PLAYER_CELLS)) {
+      this.onEvent?.('split');
+    }
   }
 
   ejectPlayer() {
     if (!this.playerAlive) return;
+    let didEject = false;
     for (const cell of this.playerCells()) {
       if (cell.mass < EJECT_MIN_MASS) continue;
       cell.mass -= EJECT_MASS_LOSS;
+      didEject = true;
       const dx = this.mouse.x - cell.x;
       const dy = this.mouse.y - cell.y;
       const d = Math.hypot(dx, dy) || 1;
@@ -204,6 +247,7 @@ export class Game {
         time: this.time,
       });
     }
+    if (didEject) this.onEvent?.('eject');
   }
 
   // ---------- Update ----------
@@ -215,11 +259,12 @@ export class Game {
 
     this.updateBots(dt);
     this.moveCells(dt);
-    this.resolvePlayerOverlaps();
+    this.resolveOverlaps();
     this.food.update(dt);
+    this.particles.update(dt);
     this.eatFood();
     this.eatCells();
-    this.updateViruses();
+    this.updateViruses(dt);
     this.applyDecay(dt);
     this.respawnFood(dt);
     this.respawnBots();
@@ -256,8 +301,20 @@ export class Game {
     }
   }
 
-  resolvePlayerOverlaps() {
-    const cells = this.playerCells();
+  // Zellen desselben Besitzers verschmelzen bzw. schieben sich auseinander
+  resolveOverlaps() {
+    const groups = new Map();
+    for (const c of this.cells) {
+      const g = groups.get(c.ownerKey);
+      if (g) g.push(c);
+      else groups.set(c.ownerKey, [c]);
+    }
+    for (const cells of groups.values()) {
+      if (cells.length > 1) this.resolveGroupOverlaps(cells);
+    }
+  }
+
+  resolveGroupOverlaps(cells) {
     for (let i = 0; i < cells.length; i++) {
       for (let j = i + 1; j < cells.length; j++) {
         const a = cells[i];
@@ -300,7 +357,10 @@ export class Game {
   eatFood() {
     for (const cell of this.cells) {
       const gained = this.food.eat(cell, this.time, EJECT_SELF_EAT_DELAY);
-      if (gained > 0) cell.mass += gained;
+      if (gained > 0) {
+        cell.mass += gained;
+        if (cell.ownerKey === 'player') this.onEvent?.('food');
+      }
     }
   }
 
@@ -325,33 +385,86 @@ export class Game {
         if (d < big.r - small.r * 0.35) {
           big.mass += small.mass;
           eaten.add(small);
+          this.particles?.burst(small.x, small.y, small.color, Math.min(16, 6 + small.r * 0.15));
+          if (big.ownerKey === 'player') {
+            this.cellsEaten++;
+            this.onEvent?.('eat');
+          }
+          if (small.ownerKey === 'player') this.lastKiller = big.name;
         }
       }
     }
     for (const cell of eaten) this.removeCell(cell);
   }
 
-  updateViruses() {
+  updateViruses(dt) {
+    const damping = Math.exp(-IMPULSE_DAMPING * dt);
     for (const virus of this.viruses) {
+      // Impuls frisch abgeschossener Viren abbauen
+      if (virus.vx !== 0 || virus.vy !== 0) {
+        virus.x = clamp(virus.x + virus.vx * dt, -WORLD_HALF, WORLD_HALF);
+        virus.y = clamp(virus.y + virus.vy * dt, -WORLD_HALF, WORLD_HALF);
+        virus.vx *= damping;
+        virus.vy *= damping;
+        if (Math.abs(virus.vx) < 1 && Math.abs(virus.vy) < 1) virus.vx = virus.vy = 0;
+      }
+
       for (const cell of [...this.cells]) {
         if (cell.mass < VIRUS_MASS * VIRUS_EXPLODE_RATIO) continue;
         const d = Math.hypot(cell.x - virus.x, cell.y - virus.y);
         if (d >= cell.r - virus.r * 0.4) continue;
 
-        if (cell.owner === 'player') this.explodePlayerCell(cell);
-        else this.popBotCell(cell);
+        const maxCells = cell.ownerKey === 'player' ? MAX_PLAYER_CELLS : MAX_BOT_CELLS;
+        this.explodeCell(cell, maxCells);
+        this.particles?.burst(virus.x, virus.y, VIRUS_GREEN, 14, 320);
+        if (cell.ownerKey === 'player') this.onEvent?.('virus');
 
         const pos = randomWorldPos(200);
         virus.x = pos.x;
         virus.y = pos.y;
+        virus.fed = 0;
+        break;
+      }
+    }
+    this.feedViruses();
+  }
+
+  // Geworfene Masse (W) füttert Viren; nach genug Fütterungen schießt der Virus
+  // einen neuen Virus in die Fütterrichtung ab.
+  feedViruses() {
+    const f = this.food;
+    for (let i = 0; i < f.capacity; i++) {
+      if (!f.alive[i] || !f.isEject[i]) continue;
+      for (const virus of this.viruses) {
+        const dx = f.x[i] - virus.x;
+        const dy = f.y[i] - virus.y;
+        if (dx * dx + dy * dy > virus.r * virus.r) continue;
+        const speed = Math.hypot(f.vx[i], f.vy[i]);
+        if (speed > 40) {
+          virus.dirX = f.vx[i] / speed;
+          virus.dirY = f.vy[i] / speed;
+        }
+        f.kill(i);
+        virus.fed++;
+        if (virus.fed >= VIRUS_FEED_COUNT) {
+          virus.fed = 0;
+          if (this.viruses.length < VIRUS_MAX) this.shootVirus(virus);
+        }
         break;
       }
     }
   }
 
-  explodePlayerCell(cell) {
+  shootVirus(from) {
+    const virus = this.makeVirus(from.x, from.y);
+    virus.vx = from.dirX * VIRUS_SHOT_IMPULSE;
+    virus.vy = from.dirY * VIRUS_SHOT_IMPULSE;
+    this.viruses.push(virus);
+  }
+
+  explodeCell(cell, maxCells) {
     cell.mass += VIRUS_MASS * 0.5;
-    const slots = MAX_PLAYER_CELLS - this.playerCells().length;
+    const slots = maxCells - this.cellsOf(cell.ownerKey).length;
     const n = Math.min(slots, 7, Math.floor(cell.mass / 20) - 1);
     if (n <= 0) return;
     const each = cell.mass / (n + 1);
@@ -361,32 +474,12 @@ export class Game {
     for (let k = 0; k < n; k++) {
       const ang = Math.random() * Math.PI * 2;
       const child = this.createCell({
-        owner: 'player', ownerKey: 'player', name: this.playerName,
-        color: this.playerColor, mass: each, x: cell.x, y: cell.y,
+        owner: cell.owner, ownerKey: cell.ownerKey, name: cell.name,
+        color: cell.color, mass: each, x: cell.x, y: cell.y,
       });
       child.ix = Math.cos(ang) * (400 + Math.random() * 250);
       child.iy = Math.sin(ang) * (400 + Math.random() * 250);
       child.mergeAt = this.time + delay;
-    }
-  }
-
-  popBotCell(cell) {
-    const lost = cell.mass * 0.45;
-    cell.mass -= lost;
-    const n = Math.min(10, Math.max(3, Math.floor(lost / 10)));
-    for (let k = 0; k < n; k++) {
-      const ang = Math.random() * Math.PI * 2;
-      const speed = 300 + Math.random() * 350;
-      this.food.spawn({
-        x: cell.x, y: cell.y,
-        mass: lost / n,
-        color: randomFoodColor(),
-        vx: Math.cos(ang) * speed,
-        vy: Math.sin(ang) * speed,
-        ownerKey: cell.ownerKey,
-        isEject: true,
-        time: this.time,
-      });
     }
   }
 
@@ -403,18 +496,29 @@ export class Game {
 
   respawnBots() {
     for (const bot of this.bots) {
-      if (!bot.cell && this.time >= bot.respawnAt) this.spawnBot(bot);
+      if (this.time >= bot.respawnAt && !this.cells.some((c) => c.owner === bot)) {
+        this.spawnBot(bot);
+      }
     }
   }
 
   // ---------- Bot-KI ----------
 
   updateBots(dt) {
-    for (const bot of this.bots) {
-      const c = bot.cell;
-      if (!c) continue;
+    // Gesamtmasse pro Besitzer einmal pro Frame vorberechnen
+    const massByOwner = new Map();
+    for (const c of this.cells) {
+      massByOwner.set(c.ownerKey, (massByOwner.get(c.ownerKey) ?? 0) + c.mass);
+    }
 
-      // 1. Vor größeren Zellen fliehen
+    for (const bot of this.bots) {
+      const cells = this.cellsOf(bot.key);
+      if (cells.length === 0) continue;
+      // Entscheidungen trifft die größte Zelle, alle Zellen folgen demselben Ziel
+      let c = cells[0];
+      for (const cell of cells) if (cell.mass > c.mass) c = cell;
+
+      // 1. Vor größeren Gegnern fliehen
       let threat = null;
       let threatDist = Infinity;
       // 2. Kleinere Zellen jagen
@@ -424,7 +528,10 @@ export class Game {
       for (const o of this.cells) {
         if (o.ownerKey === c.ownerKey) continue;
         const d = Math.hypot(o.x - c.x, o.y - c.y);
-        if (o.mass > c.mass * 1.3 && d - o.r < 350 + c.r && d < threatDist) {
+        // Gefährlich ist eine Zelle auch, wenn ihr Besitzer insgesamt deutlich
+        // stärker ist (gesplittete Gegner können wieder verschmelzen)
+        const strength = Math.max(o.mass, (massByOwner.get(o.ownerKey) ?? 0) * 0.7);
+        if (strength > c.mass * 1.3 && d - o.r < 350 + c.r && d < threatDist) {
           threat = o;
           threatDist = d;
         } else if (c.mass > o.mass * 1.3 && d < 200 + 400 * bot.aggression + c.r && d < preyDist) {
@@ -433,18 +540,33 @@ export class Game {
         }
       }
 
+      let tx = c.tx;
+      let ty = c.ty;
+
       if (threat) {
         const dx = c.x - threat.x;
         const dy = c.y - threat.y;
         const d = Math.hypot(dx, dy) || 1;
-        c.tx = c.x + (dx / d) * 500;
-        c.ty = c.y + (dy / d) * 500;
+        tx = c.x + (dx / d) * 500;
+        ty = c.y + (dy / d) * 500;
         // In der Nähe der Wand zur Mitte hin ausweichen
-        if (Math.abs(c.tx) > WORLD_HALF - 100) c.tx *= 0.7;
-        if (Math.abs(c.ty) > WORLD_HALF - 100) c.ty *= 0.7;
+        if (Math.abs(tx) > WORLD_HALF - 100) tx *= 0.7;
+        if (Math.abs(ty) > WORLD_HALF - 100) ty *= 0.7;
       } else if (prey) {
-        c.tx = prey.x;
-        c.ty = prey.y;
+        tx = prey.x;
+        ty = prey.y;
+        // Split-Angriff: halbierte Zelle kann die Beute noch fressen und
+        // erreicht sie mit Split-Impuls (~270 Einheiten) plus Nachlaufen —
+        // die Reichweite muss größer sein als der Flucht-Abstand der Beute
+        if (
+          cells.length < MAX_BOT_CELLS &&
+          c.mass >= MIN_SPLIT_MASS &&
+          c.mass / 2 > prey.mass * EAT_MASS_RATIO &&
+          preyDist < c.r + 420 &&
+          Math.random() < bot.aggression * 3 * dt
+        ) {
+          this.splitCells(bot.key, prey.x, prey.y, MAX_BOT_CELLS);
+        }
       } else {
         // 3. Futter suchen (Ziel wird periodisch aus Zufallsstichprobe gewählt)
         const f = this.food;
@@ -465,20 +587,26 @@ export class Game {
           bot.foodTarget = best;
         }
         if (bot.foodTarget >= 0 && f.alive[bot.foodTarget]) {
-          c.tx = f.x[bot.foodTarget];
-          c.ty = f.y[bot.foodTarget];
+          tx = f.x[bot.foodTarget];
+          ty = f.y[bot.foodTarget];
         }
       }
 
-      // 4. Viren meiden, wenn der Bot daran zerplatzen würde
-      if (c.mass > VIRUS_MASS * VIRUS_EXPLODE_RATIO) {
+      for (const cell of cells) {
+        cell.tx = tx;
+        cell.ty = ty;
+      }
+
+      // 4. Viren meiden — pro Zelle, die daran zerplatzen würde
+      for (const cell of cells) {
+        if (cell.mass <= VIRUS_MASS * VIRUS_EXPLODE_RATIO) continue;
         for (const virus of this.viruses) {
-          const d = Math.hypot(c.x - virus.x, c.y - virus.y);
-          if (d < c.r + virus.r + 60) {
-            const nx = (c.x - virus.x) / (d || 1);
-            const ny = (c.y - virus.y) / (d || 1);
-            c.tx = c.x + nx * 400;
-            c.ty = c.y + ny * 400;
+          const d = Math.hypot(cell.x - virus.x, cell.y - virus.y);
+          if (d < cell.r + virus.r + 60) {
+            const nx = (cell.x - virus.x) / (d || 1);
+            const ny = (cell.y - virus.y) / (d || 1);
+            cell.tx = cell.x + nx * 400;
+            cell.ty = cell.y + ny * 400;
             break;
           }
         }
@@ -491,6 +619,7 @@ export class Game {
   syncViews(dt) {
     for (const cell of this.cells) {
       const v = cell.view;
+      updateCellWobble(v, this.time);
       // Radius sanft zum Sollwert animieren (weiches Wachsen/Schrumpfen)
       cell.displayR += (cell.r - cell.displayR) * Math.min(1, dt * 8);
       // Größere Zellen leicht höher, damit sie kleinere überdecken
@@ -518,7 +647,8 @@ export class Game {
     for (const virus of this.viruses) {
       // Gleiche Z-Formel wie Zellen: kleinere Zellen verstecken sich unter dem Virus
       virus.view.group.position.set(virus.x, virus.y, 1 + Math.min(8, virus.r * 0.01));
-      virus.view.group.scale.setScalar(virus.r);
+      // Gefütterte Viren schwellen sichtbar an
+      virus.view.group.scale.setScalar(virus.r * (1 + virus.fed * 0.035));
     }
   }
 
@@ -553,7 +683,8 @@ export class Game {
       entries.push({ name: this.playerName, mass: this.playerMass(), isPlayer: true });
     }
     for (const bot of this.bots) {
-      if (bot.cell) entries.push({ name: bot.name, mass: bot.cell.mass, isPlayer: false });
+      const mass = this.massOf(bot.key);
+      if (mass > 0) entries.push({ name: bot.name, mass, isPlayer: false });
     }
     entries.sort((a, b) => b.mass - a.mass);
     return entries.slice(0, 10);

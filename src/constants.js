@@ -33,10 +33,14 @@ export const mergeDelay = (mass) => Math.min(30, 10 + mass * 0.02);
 export const VIRUS_COUNT = 12;
 export const VIRUS_MASS = 120;
 export const VIRUS_EXPLODE_RATIO = 1.15;
+export const VIRUS_FEED_COUNT = 7;       // so oft füttern, bis der Virus schießt
+export const VIRUS_MAX = 20;             // Obergrenze für abgeschossene Viren
+export const VIRUS_SHOT_IMPULSE = 900;
 
 // Bots
 export const BOT_COUNT = 14;
 export const BOT_RESPAWN_DELAY = 2.5;
+export const MAX_BOT_CELLS = 4;
 export const BOT_NAMES = [
   'Blobert', 'Kugelblitz', 'Zellina', 'Dr. Glibber', 'MegaMampf',
   'Schnappi', 'Wackelpudding', 'NomNom', 'Glibberich', 'Amöbert',
