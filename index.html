@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agar Klon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .panel {
+      background: rgba(20, 30, 40, 0.55);
+      color: #fff;
+      border-radius: 10px;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    #score {
+      position: fixed; left: 16px; bottom: 16px;
+      padding: 10px 18px; font-size: 18px; font-weight: 600;
+      pointer-events: none;
+    }
+
+    #leaderboard {
+      position: fixed; right: 16px; top: 16px;
+      padding: 12px 16px; min-width: 190px;
+      pointer-events: none;
+    }
+    #leaderboard h3 { font-size: 15px; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
+    #leaderboard ol { list-style: none; font-size: 13px; line-height: 1.7; }
+    #leaderboard li { display: flex; justify-content: space-between; gap: 12px; opacity: 0.9; }
+    #leaderboard li.me { color: #7fdc66; font-weight: 700; opacity: 1; }
+    #leaderboard li .rank { opacity: 0.6; margin-right: 6px; }
+
+    .overlay {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(15, 25, 35, 0.55);
+      z-index: 10;
+    }
+    .overlay.hidden { display: none; }
+
+    .card {
+      background: #fff; border-radius: 16px; padding: 36px 44px;
+      text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      max-width: 380px; width: calc(100% - 40px);
+    }
+    .card h1 { font-size: 34px; margin-bottom: 6px; color: #263238; }
+    .card h1 .green { color: #43a047; }
+    .card p.sub { color: #78909c; margin-bottom: 22px; font-size: 14px; }
+    .card input {
+      width: 100%; padding: 12px 14px; font-size: 16px;
+      border: 2px solid #cfd8dc; border-radius: 8px; outline: none;
+      margin-bottom: 14px; text-align: center;
+    }
+    .card input:focus { border-color: #43a047; }
+    .card button {
+      width: 100%; padding: 13px; font-size: 17px; font-weight: 700;
+      color: #fff; background: #43a047; border: none; border-radius: 8px;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .card button:hover { background: #388e3c; }
+    .card .controls {
+      margin-top: 20px; font-size: 13px; color: #607d8b;
+      display: flex; flex-direction: column; gap: 6px; text-align: left;
+    }
+    .card .controls kbd {
+      background: #eceff1; border: 1px solid #cfd8dc; border-bottom-width: 2px;
+      border-radius: 4px; padding: 1px 7px; font-size: 12px; font-family: inherit;
+    }
+    .card .stats { margin: 6px 0 20px; color: #455a64; font-size: 15px; line-height: 1.9; }
+    .card .stats b { color: #263238; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="score" class="panel">Masse: <span id="score-value">0</span></div>
+
+  <div id="leaderboard" class="panel">
+    <h3>BESTENLISTE</h3>
+    <ol id="leaderboard-list"></ol>
+  </div>
+
+  <div id="start-overlay" class="overlay">
+    <div class="card">
+      <h1>Agar <span class="green">Klon</span></h1>
+      <p class="sub">Friss oder werde gefressen</p>
+      <input id="name-input" type="text" maxlength="15" placeholder="Dein Name" autocomplete="off" />
+      <button id="play-btn">Spielen</button>
+      <div class="controls">
+        <div>🖱️ <b>Maus</b> — bewegen</div>
+        <div><kbd>Leertaste</kbd> — teilen</div>
+        <div><kbd>W</kbd> — Masse abgeben</div>
+        <div>🛡️ 3 Sekunden Spawnschutz</div>
+        <div>⚠️ Grüne Viren zerplatzen große Zellen!</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="death-overlay" class="overlay hidden">
+    <div class="card">
+      <h1>Gefressen! 💀</h1>
+      <div class="stats">
+        Endmasse: <b id="final-mass">0</b><br />
+        Größte Masse: <b id="best-mass">0</b><br />
+        Überlebt: <b id="time-alive">0s</b>
+      </div>
+      <button id="respawn-btn">Nochmal spielen</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
