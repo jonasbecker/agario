@@ -8,6 +8,8 @@ const DEFAULTS = {
   particles: true,
   minimap: true,
   massLabels: false,
+  bloom: true,
+  blackholes: true,
 };
 
 export function loadSettings() {

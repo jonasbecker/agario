@@ -71,6 +71,11 @@ export const BOT_NAMES = [
   'Schluckspecht', 'Glibsi', 'Wabbel', 'Pantoffel', 'Speckdrops', 'Quabbel',
 ];
 
+// Post-Processing (Bloom/Glow im dunklen Space-Look)
+export const BLOOM_STRENGTH = 0.6;
+export const BLOOM_RADIUS = 0.5;
+export const BLOOM_THRESHOLD = 0.6;
+
 export function randomCellColor() {
   return new THREE.Color().setHSL(Math.random(), 0.72, 0.56);
 }

@@ -70,8 +70,8 @@ export class Game {
     this.onEvent = null;
     this.onKill = null;
 
-    // Aus den Einstellungen steuerbare Optik-Flags
-    this.settings = { wobble: true, massLabels: false };
+    // Aus den Einstellungen steuerbare Flags
+    this.settings = { wobble: true, massLabels: false, blackholes: true };
 
     for (let i = 0; i < FOOD_COUNT; i++) this.food.spawnRandom();
 

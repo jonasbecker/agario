@@ -9,7 +9,25 @@ export class ParticlePool {
     this.capacity = capacity;
     this.enabled = true; // aus den Einstellungen steuerbar
     const geo = new THREE.CircleGeometry(1, 8);
-    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial(), capacity);
+
+    // Per-Instance-Alpha für weiches Ausblenden: eigenes Instanz-Attribut, das der
+    // Standard-Shader per onBeforeCompile in gl_FragColor.a einmultipliziert.
+    this.alpha = new Float32Array(capacity);
+    const aAlpha = new THREE.InstancedBufferAttribute(this.alpha, 1);
+    aAlpha.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aAlpha', aAlpha);
+    this.aAlpha = aAlpha;
+
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('void main() {', 'attribute float aAlpha;\nvarying float vAlpha;\nvoid main() {\n  vAlpha = aAlpha;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {', 'varying float vAlpha;\nvoid main() {')
+        .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a *= vAlpha;');
+    };
+
+    this.mesh = new THREE.InstancedMesh(geo, mat, capacity);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
@@ -37,6 +55,7 @@ export class ParticlePool {
     this.vy[i] = vy;
     this.maxLife[i] = this.life[i] = life;
     this.size[i] = size;
+    this.alpha[i] = 1;
     this.mesh.setColorAt(i, color);
   }
 
@@ -47,9 +66,10 @@ export class ParticlePool {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % this.capacity;
       const ang = Math.random() * Math.PI * 2;
-      const s = speed * (0.4 + Math.random() * 0.9);
+      // größere Geschwindigkeitsvarianz für lebendigere Bursts
+      const s = speed * (0.25 + Math.random() * 1.25);
       this._emit(i, x, y, Math.cos(ang) * s, Math.sin(ang) * s,
-        0.35 + Math.random() * 0.3, 3 + Math.random() * 4, color);
+        0.35 + Math.random() * 0.35, 3 + Math.random() * 4, color);
     }
     this.mesh.instanceColor.needsUpdate = true;
   }
@@ -78,20 +98,25 @@ export class ParticlePool {
         this.life[i] -= dt;
         if (this.life[i] <= 0) {
           this.alive[i] = 0;
+          this.alpha[i] = 0;
         } else {
           this.x[i] += this.vx[i] * dt;
           this.y[i] += this.vy[i] * dt;
           this.vx[i] *= drag;
           this.vy[i] *= drag;
+          // linear ausblenden über die Lebenszeit (per-Instance-Alpha)
+          this.alpha[i] = this.life[i] / this.maxLife[i];
         }
       }
-      // Partikel schrumpfen über ihre Lebenszeit auf null
-      const s = this.alive[i] ? this.size[i] * (this.life[i] / this.maxLife[i]) : 0;
+      // Partikel schrumpfen zusätzlich leicht über ihre Lebenszeit
+      const frac = this.alive[i] ? this.life[i] / this.maxLife[i] : 0;
+      const s = this.alive[i] ? this.size[i] * (0.4 + 0.6 * frac) : 0;
       _dummy.position.set(this.x[i], this.y[i], 0.5);
       _dummy.scale.set(s, s, 1);
       _dummy.updateMatrix();
       this.mesh.setMatrixAt(i, _dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.aAlpha.needsUpdate = true;
   }
 }

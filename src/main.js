@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { WORLD_HALF, GRID_DIVISIONS, START_MASS, clamp } from './constants.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {
+  WORLD_HALF, GRID_DIVISIONS, START_MASS, clamp,
+  BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD,
+} from './constants.js';
 import { Game } from './game.js';
 import { initSound, sounds, setVolume, setSoundEnabled } from './sound.js';
 import { SKINS } from './skins.js';
@@ -22,13 +28,13 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf2f6f8);
+scene.background = new THREE.Color(0x0a0e17); // dunkles Weltall
 
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
 camera.position.set(0, 0, 50);
 
-// Hintergrundraster wie in agar.io
-const grid = new THREE.GridHelper(WORLD_HALF * 2, GRID_DIVISIONS, 0xd5dde2, 0xd5dde2);
+// Hintergrundraster (dezente Gitternetzlinien im Space-Look)
+const grid = new THREE.GridHelper(WORLD_HALF * 2, GRID_DIVISIONS, 0x17203a, 0x17203a);
 grid.rotation.x = Math.PI / 2;
 grid.position.z = -2;
 scene.add(grid);
@@ -40,11 +46,11 @@ const borderGeo = new THREE.BufferGeometry().setFromPoints([
   new THREE.Vector3(WORLD_HALF, WORLD_HALF, -1),
   new THREE.Vector3(-WORLD_HALF, WORLD_HALF, -1),
 ]);
-scene.add(new THREE.LineLoop(borderGeo, new THREE.LineBasicMaterial({ color: 0x90a4ae })));
+scene.add(new THREE.LineLoop(borderGeo, new THREE.LineBasicMaterial({ color: 0x2a3a55 })));
 
-// Parallaxe-„Staub" hinter dem Raster: eine blasse Punktwolke, die der Kamera
-// leicht nachläuft und so Tiefe erzeugt (ein Draw-Call, konstante Pixelgröße)
-const DUST_COUNT = 260;
+// Parallaxe-Sternenfeld hinter dem Raster: eine Punktwolke, die der Kamera leicht
+// nachläuft und so Tiefe erzeugt (ein Draw-Call, konstante Pixelgröße)
+const DUST_COUNT = 340;
 const dustPositions = new Float32Array(DUST_COUNT * 3);
 for (let i = 0; i < DUST_COUNT; i++) {
   dustPositions[i * 3] = (Math.random() * 2 - 1) * WORLD_HALF * 1.15;
@@ -54,7 +60,7 @@ for (let i = 0; i < DUST_COUNT; i++) {
 const dustGeo = new THREE.BufferGeometry();
 dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
 const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
-  color: 0xbcc8ce, size: 5, sizeAttenuation: false, transparent: true, opacity: 0.45,
+  color: 0xaebbe0, size: 4, sizeAttenuation: false, transparent: true, opacity: 0.7,
 }));
 dust.position.z = -3;
 dust.frustumCulled = false;
@@ -64,6 +70,18 @@ scene.add(dust);
 
 const game = new Game(scene);
 window.game = game; // für Debugging in der Konsole
+
+// ---------- Post-Processing: Bloom/Glow ----------
+// Eine EffectComposer-Kette (RenderPass -> UnrealBloomPass). Auf dem dunklen
+// Space-Hintergrund lassen helle Zellen, Power-ups, Viren und Schwarze Löcher leuchten.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD
+);
+composer.addPass(bloomPass);
+let useBloom = true; // wird in applySettings() aus den Einstellungen gesetzt
 
 // ---------- Kamera-Steuerung ----------
 
@@ -117,6 +135,7 @@ function updateCamera(dt) {
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ---------- Eingabe ----------
@@ -463,8 +482,10 @@ function applySettings() {
   setSoundEnabled(settings.sfx);
   game.settings.wobble = settings.wobble;
   game.settings.massLabels = settings.massLabels;
+  game.settings.blackholes = settings.blackholes;
   game.particles.enabled = settings.particles;
   minimap.style.display = settings.minimap ? '' : 'none';
+  useBloom = settings.bloom;
 }
 
 function bindToggle(id, key) {
@@ -489,6 +510,8 @@ bindToggle('opt-wobble', 'wobble');
 bindToggle('opt-particles', 'particles');
 bindToggle('opt-minimap', 'minimap');
 bindToggle('opt-mass', 'massLabels');
+bindToggle('opt-bloom', 'bloom');
+bindToggle('opt-blackholes', 'blackholes');
 applySettings();
 
 const settingsOverlay = document.getElementById('settings-overlay');
@@ -584,7 +607,8 @@ function loop() {
   updateEffects();
   updateDanger();
   drawMinimap();
-  renderer.render(scene, camera);
+  if (useBloom) composer.render();
+  else renderer.render(scene, camera);
 }
 
 loop();
