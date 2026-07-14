@@ -11,6 +11,8 @@ export const radiusFromMass = (m) => 4 * Math.sqrt(m);
 export const speedFromMass = (m) => 580 / Math.pow(m, 0.28);
 export const EAT_MASS_RATIO = 1.3;       // so viel größer muss man sein, um zu fressen
 export const IMPULSE_DAMPING = 2.2;      // Abklingrate von Split-/Stoß-Impulsen (1/s)
+export const DECAY_MIN_MASS = 400;       // ab dieser Masse schrumpfen Zellen langsam
+export const DECAY_RATE = 0.003;         // Anteil der Masse, der pro Sekunde verfällt
 
 // Futter
 export const FOOD_COUNT = 2600;

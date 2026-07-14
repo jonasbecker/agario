@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   WORLD_HALF, START_MASS, SPAWN_PROTECTION, radiusFromMass, speedFromMass,
-  EAT_MASS_RATIO, IMPULSE_DAMPING,
+  EAT_MASS_RATIO, IMPULSE_DAMPING, DECAY_MIN_MASS, DECAY_RATE,
   FOOD_COUNT, FOOD_CAPACITY,
   MIN_SPLIT_MASS, MAX_PLAYER_CELLS, SPLIT_IMPULSE,
   EJECT_MIN_MASS, EJECT_MASS_LOSS, EJECT_MASS_GAIN, EJECT_IMPULSE, EJECT_SELF_EAT_DELAY,
@@ -670,7 +670,7 @@ export class Game {
 
   applyDecay(dt) {
     for (const cell of this.cells) {
-      if (cell.mass > 200) cell.mass *= 1 - 0.007 * dt;
+      if (cell.mass > DECAY_MIN_MASS) cell.mass *= 1 - DECAY_RATE * dt;
     }
   }
 
