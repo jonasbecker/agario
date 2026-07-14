@@ -12,6 +12,8 @@ import {
   POWERUP_COUNT, POWERUP_RADIUS, POWERUP_RESPAWN, POWERUP_MIN_MASS,
   BOOST_DURATION, BOOST_SPEED_MULT, SHIELD_DURATION,
   ZONE_START, ZONE_MIN, ZONE_SHRINK_INTERVAL, ZONE_SHRINK_STEP, ZONE_DAMAGE,
+  BLACKHOLE_COUNT, BLACKHOLE_RADIUS, BLACKHOLE_CORE, BLACKHOLE_PULL,
+  BLACKHOLE_MASS_FACTOR, BLACKHOLE_DRAIN, BLACKHOLE_FOOD_PULL,
   randomCellColor, randomWorldPos, clamp,
 } from './constants.js';
 import { FoodPool } from './food.js';
@@ -21,6 +23,7 @@ import {
   makeCellView, disposeCellView, makeVirusView, setLabelOrder, updateCellWobble,
   makePowerupView, disposePowerupView, makeZoneView, updateMassLabel,
 } from './cell.js';
+import { makeBlackholeView } from './blackhole.js';
 
 let nextId = 1;
 
@@ -82,6 +85,12 @@ export class Game {
 
     for (let i = 0; i < POWERUP_COUNT; i++) this.spawnPowerup();
 
+    this.blackholes = [];
+    for (let i = 0; i < BLACKHOLE_COUNT; i++) {
+      const { x, y } = randomWorldPos(400);
+      this.blackholes.push(this.makeBlackhole(x, y));
+    }
+
     for (let i = 0; i < BOT_COUNT; i++) {
       const bot = {
         key: `bot${i}`,
@@ -106,6 +115,15 @@ export class Game {
       dirX: 1, dirY: 0,    // Richtung der letzten Fütterung
       vx: 0, vy: 0,        // Impuls frisch abgeschossener Viren
       view: makeVirusView(this.scene),
+    };
+  }
+
+  makeBlackhole(x, y) {
+    return {
+      x, y,
+      r: BLACKHOLE_RADIUS,
+      core: BLACKHOLE_CORE,
+      view: makeBlackholeView(this.scene, BLACKHOLE_CORE / BLACKHOLE_RADIUS),
     };
   }
 
@@ -344,6 +362,7 @@ export class Game {
     this.eatCells();
     this.updateViruses(dt);
     this.updatePowerups(dt);
+    this.updateBlackholes(dt);
     if (this.mode === 'battleroyale') this.updateZone(dt);
     this.applyDecay(dt);
     this.respawnFood(dt);
@@ -647,6 +666,54 @@ export class Game {
     };
   }
 
+  // ---------- Schwarze Löcher ----------
+
+  // Gravitation als Impuls auf Zellen (Sog invers zur Distanz, proportional zur
+  // Masse); am Event Horizon rapides Absaugen bis zur Zerstörung. Futter wird über
+  // das Spatial-Grid eingesogen. Alles allokationsfrei (skalare Math).
+  updateBlackholes(dt) {
+    if (!this.settings.blackholes) return;
+    const f = this.food;
+    for (const hole of this.blackholes) {
+      // Zellen: Snapshot, da beim Absaugen entfernt werden kann
+      for (const cell of [...this.cells]) {
+        const dx = hole.x - cell.x;
+        const dy = hole.y - cell.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > hole.r) continue;
+        const dn = dist > 0.001 ? dist : 0.001;
+        const pull = BLACKHOLE_PULL * (1 + cell.mass * BLACKHOLE_MASS_FACTOR)
+          * hole.core / Math.max(dn, hole.core);
+        cell.ix += (dx / dn) * pull * dt;
+        cell.iy += (dy / dn) * pull * dt;
+        if (dist < hole.core) {
+          cell.mass -= BLACKHOLE_DRAIN * dt;
+          if (cell.mass <= 10) {
+            if (cell.ownerKey === 'player') {
+              this.lastKiller = 'Schwarzes Loch';
+              this.onEvent?.('blackhole');
+            }
+            this.particles?.ring(cell.x, cell.y, cell.color, cell.r * 0.5, 18, 320);
+            this.removeCell(cell, false, true);
+          }
+        }
+      }
+      // Futter über das Grid einsaugen
+      f.grid.query(hole.x, hole.y, hole.r, (i) => {
+        if (!f.alive[i]) return;
+        const dx = hole.x - f.x[i];
+        const dy = hole.y - f.y[i];
+        const dist = Math.hypot(dx, dy);
+        if (dist > hole.r) return;
+        const dn = dist > 0.001 ? dist : 0.001;
+        const fp = BLACKHOLE_FOOD_PULL * hole.core / Math.max(dn, hole.core);
+        f.vx[i] += (dx / dn) * fp * dt;
+        f.vy[i] += (dy / dn) * fp * dt;
+        if (dist < hole.core) f.kill(i);
+      });
+    }
+  }
+
   explodeCell(cell, maxCells) {
     cell.mass += VIRUS_MASS * 0.5;
     const slots = maxCells - this.cellsOf(cell.ownerKey).length;
@@ -874,6 +941,22 @@ export class Game {
           }
         }
       }
+
+      // 5. Schwarze Löcher meiden — vom Sog wegsteuern, bevor es zu spät ist
+      if (this.settings.blackholes) {
+        for (const cell of cells) {
+          for (const hole of this.blackholes) {
+            const d = Math.hypot(cell.x - hole.x, cell.y - hole.y);
+            if (d < hole.r * 0.75) {
+              const nx = (cell.x - hole.x) / (d || 1);
+              const ny = (cell.y - hole.y) / (d || 1);
+              cell.tx = cell.x + nx * 600;
+              cell.ty = cell.y + ny * 600;
+              break;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -943,6 +1026,13 @@ export class Game {
     for (const p of this.powerups) {
       p.view.group.position.set(p.x, p.y, 0.6);
       p.view.group.scale.setScalar(p.r * pulse);
+    }
+    for (const hole of this.blackholes) {
+      const v = hole.view;
+      v.mesh.visible = this.settings.blackholes;
+      v.mat.uniforms.uTime.value = this.time;
+      v.mesh.position.set(hole.x, hole.y, -0.5);
+      v.mesh.scale.setScalar(hole.r);
     }
     if (this.mode === 'battleroyale') {
       this.zoneView.line.scale.setScalar(this.zone.r);

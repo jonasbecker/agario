@@ -48,4 +48,5 @@ export const sounds = {
   powerup: () => blip(520, 0.25, { type: 'triangle', vol: 0.18, slide: 480 }),
   poison: () => blip(180, 0.18, { type: 'sawtooth', vol: 0.14, slide: -90 }),
   achievement: () => blip(660, 0.3, { type: 'triangle', vol: 0.2, slide: 520 }),
+  blackhole: () => blip(90, 0.7, { type: 'sawtooth', vol: 0.22, slide: -50 }),
 };

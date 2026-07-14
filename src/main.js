@@ -381,6 +381,7 @@ game.onEvent = (type) => {
     lastFoodSound = now;
   }
   if (type === 'virus') addShake(45);
+  if (type === 'blackhole') addShake(55);
   sounds[type]?.();
 };
 
@@ -436,6 +437,15 @@ function drawMinimap() {
 
   for (const v of game.viruses) drawMinimapDot(mapX(v.x), mapY(v.y), 2, '#33cc33');
   for (const p of game.powerups) drawMinimapDot(mapX(p.x), mapY(p.y), 2, '#ffd54f');
+  if (game.settings.blackholes) {
+    for (const h of game.blackholes) {
+      minimapCtx.strokeStyle = '#c060ff';
+      minimapCtx.lineWidth = 1.5;
+      minimapCtx.beginPath();
+      minimapCtx.arc(mapX(h.x), mapY(h.y), 3.5, 0, Math.PI * 2);
+      minimapCtx.stroke();
+    }
+  }
   for (const c of game.cells) {
     if (c.owner !== 'player') drawMinimapDot(mapX(c.x), mapY(c.y), 2, 'rgba(255,255,255,0.45)');
   }

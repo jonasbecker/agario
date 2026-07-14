@@ -50,6 +50,15 @@ export const ZONE_SHRINK_INTERVAL = 11;  // s zwischen zwei Schrumpfstufen
 export const ZONE_SHRINK_STEP = 360;     // um so viel schrumpft die Zielgröße
 export const ZONE_DAMAGE = 20;           // Masse/s Schaden außerhalb der Zone
 
+// Schwarze Löcher
+export const BLACKHOLE_COUNT = 2;
+export const BLACKHOLE_RADIUS = 520;     // Wirkungsradius (AoE)
+export const BLACKHOLE_CORE = 64;        // Event Horizon (Innenradius)
+export const BLACKHOLE_PULL = 320;       // Sog-Stärke am Event Horizon
+export const BLACKHOLE_MASS_FACTOR = 0.002; // Sog steigt mit Zellmasse
+export const BLACKHOLE_DRAIN = 90;       // Masse/s, die am Kern abgesaugt wird
+export const BLACKHOLE_FOOD_PULL = 800;  // Einwärts-Beschleunigung für Futter
+
 // Power-ups
 export const POWERUP_COUNT = 5;          // gleichzeitig in der Welt
 export const POWERUP_RADIUS = 26;
