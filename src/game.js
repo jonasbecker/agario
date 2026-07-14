@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {
   WORLD_HALF, START_MASS, SPAWN_PROTECTION, radiusFromMass, speedFromMass,
-  EAT_MASS_RATIO, IMPULSE_DAMPING, DECAY_MIN_MASS, DECAY_RATE,
+  EAT_MASS_RATIO, IMPULSE_DAMPING,
+  MOVE_ACCEL, MASS_INERTIA, VIRUS_BOUNCE, OVERLAP_RESTITUTION, DECAY_MIN_MASS, DECAY_RATE,
   FOOD_COUNT, FOOD_CAPACITY,
   MIN_SPLIT_MASS, MAX_PLAYER_CELLS, SPLIT_IMPULSE,
   EJECT_MIN_MASS, EJECT_MASS_LOSS, EJECT_MASS_GAIN, EJECT_IMPULSE, EJECT_SELF_EAT_DELAY,
@@ -136,7 +137,8 @@ export class Game {
       mass, x, y,
       r: radiusFromMass(mass),
       tx: x, ty: y,       // Bewegungsziel
-      ix: 0, iy: 0,        // Impuls (Split/Explosion)
+      vx: 0, vy: 0,        // Steuer-Geschwindigkeit (Trägheit)
+      ix: 0, iy: 0,        // Impuls (Split/Explosion/Gravitation)
       mergeAt: 0,
       protectedUntil: 0,
       displayR: radiusFromMass(mass), // sanft animierter Anzeige-Radius
@@ -387,13 +389,23 @@ export class Game {
       const dx = cell.tx - cell.x;
       const dy = cell.ty - cell.y;
       const d = Math.hypot(dx, dy);
+      // Zielgeschwindigkeit Richtung Cursor (in Zielnähe abbremsen)
+      let dvx = 0;
+      let dvy = 0;
       if (d > 0.001) {
-        // In Zielnähe abbremsen, damit Zellen nicht um den Cursor zittern
         const boost = this.hasSpeed(cell.ownerKey) ? BOOST_SPEED_MULT : 1;
         const speed = speedFromMass(cell.mass) * boost * Math.min(1, d / (cell.r * 0.5 + 1));
-        cell.x += (dx / d) * speed * dt;
-        cell.y += (dy / d) * speed * dt;
+        dvx = (dx / d) * speed;
+        dvy = (dy / d) * speed;
       }
+      // Trägheit/Gewicht: schwerere Zellen nähern sich der Zielgeschwindigkeit träger
+      // (Beschleunigungs-Verzögerung + Drift), Endgeschwindigkeit bleibt gleich
+      const accel = Math.min(1, (MOVE_ACCEL / (1 + cell.mass * MASS_INERTIA)) * dt);
+      cell.vx += (dvx - cell.vx) * accel;
+      cell.vy += (dvy - cell.vy) * accel;
+      cell.x += cell.vx * dt;
+      cell.y += cell.vy * dt;
+      // Stoß-/Split-/Gravitationsimpuls additiv, klingt ab
       cell.x += cell.ix * dt;
       cell.y += cell.iy * dt;
       cell.ix *= damping;
@@ -451,6 +463,14 @@ export class Game {
           a.y -= ny * overlap * (b.mass / total);
           b.x += nx * overlap * (a.mass / total);
           b.y += ny * overlap * (a.mass / total);
+          // Elastischer Rückstoß: annähernde Normalgeschwindigkeit umkehren,
+          // damit frisch geteilte Zellen sichtbar auseinanderfedern
+          const rvn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+          if (rvn < 0) {
+            const j = -(1 + OVERLAP_RESTITUTION) * rvn * 0.5;
+            a.vx -= j * nx; a.vy -= j * ny;
+            b.vx += j * nx; b.vy += j * ny;
+          }
         }
       }
     }
@@ -544,6 +564,24 @@ export class Game {
         virus.y = pos.y;
         virus.fed = 0;
         break;
+      }
+
+      // Kleine Zellen können den Virus nicht sprengen und prallen elastisch am
+      // Kern ab (Depenetration + Reflexion der Normalgeschwindigkeit + Impuls)
+      for (const cell of this.cells) {
+        if (cell.mass >= VIRUS_MASS * VIRUS_EXPLODE_RATIO) continue;
+        const dx = cell.x - virus.x;
+        const dy = cell.y - virus.y;
+        const d = Math.hypot(dx, dy);
+        if (d >= virus.r || d < 0.001) continue;
+        const nx = dx / d;
+        const ny = dy / d;
+        cell.x = virus.x + nx * virus.r;
+        cell.y = virus.y + ny * virus.r;
+        const vn = cell.vx * nx + cell.vy * ny;
+        if (vn < 0) { cell.vx -= 2 * vn * nx; cell.vy -= 2 * vn * ny; }
+        cell.ix += nx * VIRUS_BOUNCE;
+        cell.iy += ny * VIRUS_BOUNCE;
       }
     }
     this.feedViruses();
@@ -988,7 +1026,11 @@ export class Game {
 
     for (const cell of this.cells) {
       const v = cell.view;
-      if (this.settings.wobble) updateCellWobble(v, this.time);
+      if (this.settings.wobble) {
+        const sp = Math.hypot(cell.vx, cell.vy);
+        const inv = sp > 0.001 ? 1 / sp : 0;
+        updateCellWobble(v, this.time, sp, cell.vx * inv, cell.vy * inv);
+      }
       if (refreshMass) updateMassLabel(v, cell.mass, true);
       else if (!this.settings.massLabels && v.massLabel.visible) updateMassLabel(v, 0, false);
       // Radius sanft zum Sollwert animieren (weiches Wachsen/Schrumpfen)

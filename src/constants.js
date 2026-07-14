@@ -14,6 +14,14 @@ export const IMPULSE_DAMPING = 2.2;      // Abklingrate von Split-/Stoß-Impulse
 export const DECAY_MIN_MASS = 400;       // ab dieser Masse schrumpfen Zellen langsam
 export const DECAY_RATE = 0.003;         // Anteil der Masse, der pro Sekunde verfällt
 
+// Game Feel: Trägheit/Gewicht, Elastizität, richtungsabhängiger Wobble
+export const MOVE_ACCEL = 12;            // Beschleunigung Richtung Zielgeschwindigkeit
+export const MASS_INERTIA = 0.004;       // je größer, desto träger reagiert Masse
+export const VIRUS_BOUNCE = 380;         // Abprall-Impuls kleiner Zellen am Virus
+export const OVERLAP_RESTITUTION = 0.4;  // Sprungkraft beim Auseinanderstoßen (0..1)
+export const WOBBLE_STRETCH = 0.18;      // maximale Streckung entlang der Bewegung
+export const WOBBLE_STRETCH_SCALE = 0.0012; // Streckung pro Geschwindigkeitseinheit
+
 // Futter
 export const FOOD_COUNT = 2600;
 export const FOOD_CAPACITY = 3200;

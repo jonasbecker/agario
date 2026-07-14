@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getSkinTexture } from './skins.js';
+import { WOBBLE_STRETCH, WOBBLE_STRETCH_SCALE } from './constants.js';
 
 // Kreissegmente pro Zelle — jede Zelle bekommt eine eigene Geometrie,
 // deren Rand pro Frame organisch wabert (siehe updateCellWobble)
@@ -143,14 +144,22 @@ export function updateMassLabel(view, mass, enabled) {
 // Lässt den Zellrand organisch wabern: Ring-Vertices der Einheitskreis-Geometrie
 // werden mit zwei überlagerten Sinuswellen radial verschoben. Ganzzahlige
 // Wellenzahlen halten die Naht (erster/letzter Ring-Vertex) geschlossen.
-export function updateCellWobble(view, time) {
+// Zusätzlich streckt sich die Zelle bei Bewegung in Fahrtrichtung (Tropfenform).
+export function updateCellWobble(view, time, speed = 0, dirX = 0, dirY = 0) {
   const pos = view.geo.attributes.position;
   const ring = pos.count - 2; // Vertex 0 = Mittelpunkt, letzter = Nahtduplikat
   const t1 = time * view.wobbleSpeed + view.wobblePhase;
   const t2 = time * view.wobbleSpeed * 1.7 - view.wobblePhase;
+  // Streckung skaliert mit dem Tempo; cos²-Term ist ganzzahlig-periodisch -> Naht bleibt zu
+  const stretch = Math.min(WOBBLE_STRETCH, speed * WOBBLE_STRETCH_SCALE);
+  const velAng = stretch > 0 ? Math.atan2(dirY, dirX) : 0;
   for (let j = 1; j < pos.count; j++) {
     const ang = ((j - 1) / ring) * Math.PI * 2;
-    const r = 1 + 0.02 * Math.sin(ang * 5 + t1) + 0.012 * Math.sin(ang * 9 + t2);
+    let r = 1 + 0.02 * Math.sin(ang * 5 + t1) + 0.012 * Math.sin(ang * 9 + t2);
+    if (stretch > 0) {
+      const c = Math.cos(ang - velAng);
+      r += stretch * (c * c - 0.35); // vorne/hinten raus, seitlich leicht rein
+    }
     pos.setXY(j, Math.cos(ang) * r, Math.sin(ang) * r);
   }
   pos.needsUpdate = true;
