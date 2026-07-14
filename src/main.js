@@ -143,6 +143,16 @@ function stopEjectHold() {
   ejectHoldTimer = 0;
 }
 window.addEventListener('keydown', (e) => {
+  // Escape/Home: universelle „Zurück/Menü"-Taste (vor dem Input/Button-Guard, damit sie
+  // auch greift, wenn der Fokus auf einem Overlay-Element liegt)
+  if (e.code === 'Escape' || e.code === 'Home') {
+    e.preventDefault();
+    if (!settingsOverlay.classList.contains('hidden')) settingsOverlay.classList.add('hidden');
+    else if (!statsOverlay.classList.contains('hidden')) statsOverlay.classList.add('hidden');
+    else if (!startOverlay.classList.contains('hidden') && game.playerAlive) resumeGame();
+    else goToMenu();
+    return;
+  }
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
   if (e.code === 'Space') {
     e.preventDefault();
@@ -252,6 +262,22 @@ function startGame() {
   deathOverlay.classList.add('hidden');
   document.getElementById('victory-overlay').classList.add('hidden');
   // Fokus vom Button nehmen, damit Leertaste/Enter ihn nicht erneut auslösen
+  document.activeElement?.blur();
+}
+
+// Zurück ins Startmenü (schließt alle anderen Overlays); laufende Runde pausiert,
+// solange das Menü offen ist (siehe loop())
+function goToMenu() {
+  settingsOverlay.classList.add('hidden');
+  statsOverlay.classList.add('hidden');
+  deathOverlay.classList.add('hidden');
+  document.getElementById('victory-overlay').classList.add('hidden');
+  startOverlay.classList.remove('hidden');
+}
+
+// Laufende Runde fortsetzen (Menü schließen, ohne neu zu spawnen)
+function resumeGame() {
+  startOverlay.classList.add('hidden');
   document.activeElement?.blur();
 }
 
@@ -549,7 +575,10 @@ function loop() {
     camY + (ndc.y * viewH) / 2
   );
 
-  game.update(dt);
+  // Pause, solange das Menü während einer laufenden Runde offen ist; das
+  // Anfangsmenü (playerAlive === false) bleibt belebt
+  const paused = !startOverlay.classList.contains('hidden') && game.playerAlive;
+  if (!paused) game.update(dt);
   updateCamera(dt);
   updateHUD(dt);
   updateEffects();
