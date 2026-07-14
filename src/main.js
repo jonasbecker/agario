@@ -112,15 +112,29 @@ window.addEventListener('wheel', (e) => {
   zoom = clamp(zoom * Math.exp(e.deltaY * 0.001), 0.6, 1.8);
 }, { passive: true });
 
+// W gedrückt halten stößt fortlaufend Masse aus (wie im Original) — eigenes
+// Intervall statt des OS-Autorepeats, damit die Rate überall gleich ist.
+let ejectHoldTimer = 0;
+function stopEjectHold() {
+  clearInterval(ejectHoldTimer);
+  ejectHoldTimer = 0;
+}
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
   if (e.code === 'Space') {
     e.preventDefault();
     if (!e.repeat) game.splitPlayer();
   } else if (e.code === 'KeyW') {
+    if (e.repeat) return;
     game.ejectPlayer();
+    stopEjectHold();
+    ejectHoldTimer = setInterval(() => game.ejectPlayer(), 140);
   }
 });
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyW') stopEjectHold();
+});
+window.addEventListener('blur', stopEjectHold);
 
 // Touch-Buttons (nur bei groben Zeigern sichtbar, siehe CSS)
 const touchControls = document.getElementById('touch-controls');

@@ -449,15 +449,19 @@ export class Game {
         const b = this.cells[j];
         if (eaten.has(a) || eaten.has(b)) continue;
         if (a.ownerKey === b.ownerKey) continue;
-        // Spawnschutz & Schild-Power-up: geschützte Zellen fressen nicht und
+        // Spawnschutz ist symmetrisch: geschützte Zellen fressen nicht und
         // werden nicht gefressen
-        if (this.isShielded(a) || this.isShielded(b)) continue;
+        if (this.isSpawnProtected(a) || this.isSpawnProtected(b)) continue;
 
         let big = null;
         let small = null;
         if (a.mass > b.mass * EAT_MASS_RATIO) { big = a; small = b; }
         else if (b.mass > a.mass * EAT_MASS_RATIO) { big = b; small = a; }
         else continue;
+
+        // Power-up-Schild schützt nur davor, gefressen zu werden (offensiv nutzbar):
+        // Die größere Zelle darf trotz eigenem Schild fressen.
+        if (this.hasShield(small)) continue;
 
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (d < big.r - small.r * 0.35) {
@@ -600,8 +604,13 @@ export class Game {
     return e ? e.speedUntil > this.time : false;
   }
 
-  isShielded(cell) {
-    if (cell.protectedUntil > this.time) return true;
+  // Spawnschutz: symmetrisch — geschützte Zellen fressen nicht und werden nicht gefressen
+  isSpawnProtected(cell) {
+    return cell.protectedUntil > this.time;
+  }
+
+  // Power-up-Schild: offensiv — Träger kann fressen, wird aber nicht gefressen
+  hasShield(cell) {
     const e = this.effects.get(cell.ownerKey);
     return e ? e.shieldUntil > this.time : false;
   }

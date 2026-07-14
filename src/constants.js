@@ -31,7 +31,7 @@ export const EJECT_MASS_LOSS = 16;
 export const EJECT_MASS_GAIN = 13;
 export const EJECT_IMPULSE = 700;
 export const EJECT_SELF_EAT_DELAY = 0.7; // s bevor man eigene Masse wieder fressen kann
-export const mergeDelay = (mass) => Math.min(30, 10 + mass * 0.02);
+export const mergeDelay = (mass) => Math.min(14, 6 + mass * 0.012);
 
 // Viren
 export const VIRUS_COUNT = 12;
