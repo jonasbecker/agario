@@ -3,6 +3,7 @@ import {
   WORLD_HALF, FOOD_MASS, FOOD_MIN_RADIUS,
   radiusFromMass, randomFoodColor, randomWorldPos, clamp,
 } from './constants.js';
+import { SpatialGrid } from './grid.js';
 
 const _dummy = new THREE.Object3D();
 
@@ -31,6 +32,9 @@ export class FoodPool {
     this.free = [];
     for (let i = capacity - 1; i >= 0; i--) this.free.push(i);
     this.baseAlive = 0;
+
+    // Pro Frame neu befülltes Gitter für schnelle Nachbarschaftssuche
+    this.grid = new SpatialGrid(180);
 
     const white = new THREE.Color(0xffffff);
     for (let i = 0; i < capacity; i++) this.mesh.setColorAt(i, white);
@@ -70,37 +74,42 @@ export class FoodPool {
   }
 
   // Lässt eine Zelle alles fressen, dessen Mittelpunkt in ihr liegt. Gibt gewonnene Masse zurück.
+  // Nutzt das Gitter, damit nur Futter in Zellnähe geprüft wird.
   eat(cell, time, selfEatDelay) {
     let gained = 0;
     const r2 = cell.r * cell.r;
-    for (let i = 0; i < this.capacity; i++) {
-      if (!this.alive[i]) continue;
+    this.grid.query(cell.x, cell.y, cell.r, (i) => {
+      if (!this.alive[i]) return;
       const dx = this.x[i] - cell.x;
       const dy = this.y[i] - cell.y;
-      if (dx * dx + dy * dy > r2) continue;
+      if (dx * dx + dy * dy > r2) return;
       if (
         this.ownerKey[i] !== null &&
         this.ownerKey[i] === cell.ownerKey &&
         time - this.bornAt[i] < selfEatDelay
-      ) continue;
+      ) return;
       gained += this.mass[i];
       this.kill(i);
-    }
+    });
     return gained;
   }
 
   update(dt) {
     const decay = Math.exp(-3 * dt);
+    this.grid.clear();
     for (let i = 0; i < this.capacity; i++) {
-      if (this.alive[i] && (this.vx[i] !== 0 || this.vy[i] !== 0)) {
-        this.x[i] = clamp(this.x[i] + this.vx[i] * dt, -WORLD_HALF, WORLD_HALF);
-        this.y[i] = clamp(this.y[i] + this.vy[i] * dt, -WORLD_HALF, WORLD_HALF);
-        this.vx[i] *= decay;
-        this.vy[i] *= decay;
-        if (Math.abs(this.vx[i]) < 1 && Math.abs(this.vy[i]) < 1) {
-          this.vx[i] = 0;
-          this.vy[i] = 0;
+      if (this.alive[i]) {
+        if (this.vx[i] !== 0 || this.vy[i] !== 0) {
+          this.x[i] = clamp(this.x[i] + this.vx[i] * dt, -WORLD_HALF, WORLD_HALF);
+          this.y[i] = clamp(this.y[i] + this.vy[i] * dt, -WORLD_HALF, WORLD_HALF);
+          this.vx[i] *= decay;
+          this.vy[i] *= decay;
+          if (Math.abs(this.vx[i]) < 1 && Math.abs(this.vy[i]) < 1) {
+            this.vx[i] = 0;
+            this.vy[i] = 0;
+          }
         }
+        this.grid.insert(i, this.x[i], this.y[i]);
       }
       _dummy.position.set(this.x[i], this.y[i], 0.3);
       const s = this.alive[i] ? this.r[i] : 0;

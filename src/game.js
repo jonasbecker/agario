@@ -148,6 +148,24 @@ export class Game {
     return randomWorldPos(150);
   }
 
+  // Spawnpunkt in einem Ring um den Spieler (nah genug für Action, aber außerhalb
+  // des Sicherheitsabstands), damit beim Großwerden immer Gegner in Sicht sind.
+  findSpawnNearPlayer() {
+    const focus = this.playerFocus();
+    if (!focus) return this.findSafeSpawn();
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 700 + Math.random() * 700;
+      const x = clamp(focus.x + Math.cos(ang) * dist, -WORLD_HALF + 150, WORLD_HALF - 150);
+      const y = clamp(focus.y + Math.sin(ang) * dist, -WORLD_HALF + 150, WORLD_HALF - 150);
+      const danger = this.cells.some(
+        (c) => c.mass > 40 && Math.hypot(c.x - x, c.y - y) < 500
+      );
+      if (!danger) return { x, y };
+    }
+    return this.findSafeSpawn();
+  }
+
   spawnPlayer(name) {
     // silent: Aufräumen alter Zellen darf nicht den Tod-Callback (Death-Overlay) auslösen
     for (const c of this.playerCells()) this.removeCell(c, true);
@@ -168,7 +186,10 @@ export class Game {
   }
 
   spawnBot(bot) {
-    const { x, y } = this.findSafeSpawn();
+    // Mit ~40 % Chance in Spielernähe spawnen (nur wenn der Spieler lebt),
+    // damit der Bildschirm beim Großwerden belebt bleibt
+    const nearPlayer = this.playerAlive && this.playerMass() > 60 && Math.random() < 0.4;
+    const { x, y } = nearPlayer ? this.findSpawnNearPlayer() : this.findSafeSpawn();
     const mass = 15 + Math.random() * 35;
     // Persönlichkeit: wie aggressiv dieser Bot Beute jagt (wird pro Leben neu gewürfelt)
     bot.aggression = 0.25 + Math.random() * 0.65;
@@ -385,7 +406,9 @@ export class Game {
         if (d < big.r - small.r * 0.35) {
           big.mass += small.mass;
           eaten.add(small);
-          this.particles?.burst(small.x, small.y, small.color, Math.min(16, 6 + small.r * 0.15));
+          // Platz-Effekt skaliert mit der Größe der gefressenen Zelle
+          this.particles?.burst(small.x, small.y, small.color, Math.min(20, 8 + small.r * 0.2));
+          if (small.r > 22) this.particles?.ring(small.x, small.y, small.color, small.r * 0.6, 20);
           if (big.ownerKey === 'player') {
             this.cellsEaten++;
             this.onEvent?.('eat');
@@ -430,15 +453,16 @@ export class Game {
   }
 
   // Geworfene Masse (W) füttert Viren; nach genug Fütterungen schießt der Virus
-  // einen neuen Virus in die Fütterrichtung ab.
+  // einen neuen Virus in die Fütterrichtung ab. Grid-Abfrage pro Virus.
   feedViruses() {
     const f = this.food;
-    for (let i = 0; i < f.capacity; i++) {
-      if (!f.alive[i] || !f.isEject[i]) continue;
-      for (const virus of this.viruses) {
+    for (const virus of this.viruses) {
+      const r2 = virus.r * virus.r;
+      f.grid.query(virus.x, virus.y, virus.r, (i) => {
+        if (!f.alive[i] || !f.isEject[i]) return;
         const dx = f.x[i] - virus.x;
         const dy = f.y[i] - virus.y;
-        if (dx * dx + dy * dy > virus.r * virus.r) continue;
+        if (dx * dx + dy * dy > r2) return;
         const speed = Math.hypot(f.vx[i], f.vy[i]);
         if (speed > 40) {
           virus.dirX = f.vx[i] / speed;
@@ -450,8 +474,7 @@ export class Game {
           virus.fed = 0;
           if (this.viruses.length < VIRUS_MAX) this.shootVirus(virus);
         }
-        break;
-      }
+      });
     }
   }
 
@@ -568,7 +591,8 @@ export class Game {
           this.splitCells(bot.key, prey.x, prey.y, MAX_BOT_CELLS);
         }
       } else {
-        // 3. Futter suchen (Ziel wird periodisch aus Zufallsstichprobe gewählt)
+        // 3. Futter suchen: nächstes Pellet in wachsendem Radius per Grid,
+        // Zufallsstichprobe als Fallback wenn nichts in der Nähe ist
         const f = this.food;
         if (
           bot.foodTarget < 0 ||
@@ -578,11 +602,21 @@ export class Game {
           bot.retargetAt = this.time + 0.5;
           let best = -1;
           let bestD = Infinity;
-          for (let s = 0; s < 30; s++) {
-            const i = (Math.random() * f.capacity) | 0;
-            if (!f.alive[i]) continue;
-            const d = Math.hypot(f.x[i] - c.x, f.y[i] - c.y);
-            if (d < bestD) { bestD = d; best = i; }
+          for (const radius of [400, 900]) {
+            f.grid.query(c.x, c.y, radius, (i) => {
+              if (!f.alive[i]) return;
+              const d = Math.hypot(f.x[i] - c.x, f.y[i] - c.y);
+              if (d < bestD) { bestD = d; best = i; }
+            });
+            if (best >= 0) break;
+          }
+          if (best < 0) {
+            for (let s = 0; s < 30; s++) {
+              const i = (Math.random() * f.capacity) | 0;
+              if (!f.alive[i]) continue;
+              const d = Math.hypot(f.x[i] - c.x, f.y[i] - c.y);
+              if (d < bestD) { bestD = d; best = i; }
+            }
           }
           bot.foodTarget = best;
         }

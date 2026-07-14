@@ -28,6 +28,17 @@ export class ParticlePool {
     this.mesh.instanceColor.needsUpdate = true;
   }
 
+  _emit(i, x, y, vx, vy, life, size, color) {
+    this.alive[i] = 1;
+    this.x[i] = x;
+    this.y[i] = y;
+    this.vx[i] = vx;
+    this.vy[i] = vy;
+    this.maxLife[i] = this.life[i] = life;
+    this.size[i] = size;
+    this.mesh.setColorAt(i, color);
+  }
+
   burst(x, y, color, count = 10, speed = 220) {
     const n = Math.round(count);
     for (let k = 0; k < n; k++) {
@@ -35,14 +46,24 @@ export class ParticlePool {
       this.cursor = (this.cursor + 1) % this.capacity;
       const ang = Math.random() * Math.PI * 2;
       const s = speed * (0.4 + Math.random() * 0.9);
-      this.alive[i] = 1;
-      this.x[i] = x;
-      this.y[i] = y;
-      this.vx[i] = Math.cos(ang) * s;
-      this.vy[i] = Math.sin(ang) * s;
-      this.maxLife[i] = this.life[i] = 0.35 + Math.random() * 0.3;
-      this.size[i] = 3 + Math.random() * 4;
-      this.mesh.setColorAt(i, color);
+      this._emit(i, x, y, Math.cos(ang) * s, Math.sin(ang) * s,
+        0.35 + Math.random() * 0.3, 3 + Math.random() * 4, color);
+    }
+    this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  // Gleichmäßig nach außen fliegende Partikel — liest sich als Schockwellen-Ring.
+  // Startradius setzt die Partikel schon auf den Zellrand (r0), damit der Ring passt.
+  ring(x, y, color, r0 = 0, count = 24, speed = 260) {
+    const n = Math.round(count);
+    for (let k = 0; k < n; k++) {
+      const i = this.cursor;
+      this.cursor = (this.cursor + 1) % this.capacity;
+      const ang = (k / n) * Math.PI * 2;
+      const cos = Math.cos(ang);
+      const sin = Math.sin(ang);
+      this._emit(i, x + cos * r0, y + sin * r0, cos * speed, sin * speed,
+        0.4 + Math.random() * 0.2, 4 + Math.random() * 3, color);
     }
     this.mesh.instanceColor.needsUpdate = true;
   }

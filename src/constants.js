@@ -13,10 +13,10 @@ export const EAT_MASS_RATIO = 1.3;       // so viel größer muss man sein, um z
 export const IMPULSE_DAMPING = 2.2;      // Abklingrate von Split-/Stoß-Impulsen (1/s)
 
 // Futter
-export const FOOD_COUNT = 1000;
-export const FOOD_CAPACITY = 1400;
+export const FOOD_COUNT = 2600;
+export const FOOD_CAPACITY = 3200;
 export const FOOD_MASS = 1.5;
-export const FOOD_MIN_RADIUS = 6;
+export const FOOD_MIN_RADIUS = 8;
 
 // Spieler-Aktionen
 export const MIN_SPLIT_MASS = 36;
@@ -38,13 +38,15 @@ export const VIRUS_MAX = 20;             // Obergrenze für abgeschossene Viren
 export const VIRUS_SHOT_IMPULSE = 900;
 
 // Bots
-export const BOT_COUNT = 14;
+export const BOT_COUNT = 24;
 export const BOT_RESPAWN_DELAY = 2.5;
 export const MAX_BOT_CELLS = 4;
 export const BOT_NAMES = [
   'Blobert', 'Kugelblitz', 'Zellina', 'Dr. Glibber', 'MegaMampf',
   'Schnappi', 'Wackelpudding', 'NomNom', 'Glibberich', 'Amöbert',
   'Bakteria', 'Blasius', 'Knuddel', 'Futterneid', 'Plopp', 'Zelluloid',
+  'Schleimer', 'Bläschen', 'Protozoa', 'Gierschlund', 'Mampfred', 'Kügelchen',
+  'Schluckspecht', 'Glibsi', 'Wabbel', 'Pantoffel', 'Speckdrops', 'Quabbel',
 ];
 
 export function randomCellColor() {

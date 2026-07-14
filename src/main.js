@@ -43,6 +43,11 @@ let viewH = 900;
 let camX = 0;
 let camY = 0;
 let zoom = 1; // manueller Zoom-Faktor (Mausrad), multipliziert den Auto-Zoom
+let shake = 0; // aktuelle Erschütterungsstärke (klingt ab)
+
+function addShake(mag) {
+  shake = Math.min(60, shake + mag);
+}
 
 function updateCamera(dt) {
   const focus = game.playerFocus();
@@ -56,12 +61,24 @@ function updateCamera(dt) {
     camX += (focus.x - camX) * Math.min(1, dt * 5);
     camY += (focus.y - camY) * Math.min(1, dt * 5);
   }
+  // Erschütterung: zufälliger Versatz, proportional zur aktuellen Kamerahöhe,
+  // damit der Effekt bei jedem Zoom gleich stark wirkt
+  let sx = 0;
+  let sy = 0;
+  if (shake > 0.5) {
+    const amp = (shake / 60) * viewH * 0.02;
+    sx = (Math.random() * 2 - 1) * amp;
+    sy = (Math.random() * 2 - 1) * amp;
+    shake *= Math.exp(-9 * dt);
+  } else {
+    shake = 0;
+  }
   const aspect = window.innerWidth / window.innerHeight;
   camera.left = (-viewH * aspect) / 2;
   camera.right = (viewH * aspect) / 2;
   camera.top = viewH / 2;
   camera.bottom = -viewH / 2;
-  camera.position.set(camX, camY, 50);
+  camera.position.set(camX + sx, camY + sy, 50);
   camera.updateProjectionMatrix();
 }
 
@@ -156,6 +173,7 @@ showStartHighscore();
 
 game.onPlayerDeath = (stats) => {
   sounds.death();
+  addShake(55);
   document.getElementById('killer-name').textContent = stats.killer || '???';
   document.getElementById('final-mass').textContent = stats.mass;
   document.getElementById('best-mass').textContent = stats.maxMass;
@@ -183,6 +201,7 @@ game.onEvent = (type) => {
     if (now - lastFoodSound < 80) return;
     lastFoodSound = now;
   }
+  if (type === 'virus') addShake(45);
   sounds[type]?.();
 };
 
