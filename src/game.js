@@ -9,17 +9,27 @@ import {
   VIRUS_COUNT, VIRUS_MASS, VIRUS_EXPLODE_RATIO,
   VIRUS_FEED_COUNT, VIRUS_MAX, VIRUS_SHOT_IMPULSE,
   BOT_COUNT, BOT_RESPAWN_DELAY, BOT_NAMES, MAX_BOT_CELLS,
+  POWERUP_COUNT, POWERUP_RADIUS, POWERUP_RESPAWN, POWERUP_MIN_MASS,
+  BOOST_DURATION, BOOST_SPEED_MULT, SHIELD_DURATION,
   randomCellColor, randomWorldPos, clamp,
 } from './constants.js';
 import { FoodPool } from './food.js';
 import { ParticlePool } from './particles.js';
+import { SKINS } from './skins.js';
 import {
   makeCellView, disposeCellView, makeVirusView, setLabelOrder, updateCellWobble,
+  makePowerupView, disposePowerupView,
 } from './cell.js';
 
 let nextId = 1;
 
 const VIRUS_GREEN = new THREE.Color(0x33cc33);
+
+// Power-up-Typen: Symbol + Halo-Farbe
+const POWERUP_TYPES = [
+  { type: 'speed', emoji: '⚡', color: new THREE.Color(0xffd54f) },
+  { type: 'shield', emoji: '🛡️', color: new THREE.Color(0x64b5f6) },
+];
 
 export class Game {
   constructor(scene) {
@@ -31,17 +41,24 @@ export class Game {
     this.viruses = [];
     this.bots = [];
 
+    this.powerups = [];
+    this.effects = new Map(); // ownerKey -> { speedUntil, shieldUntil }
+    this.nextPowerupAt = 0;
+
     this.playerAlive = false;
     this.playerName = '';
     this.playerColor = randomCellColor();
+    this.playerSkin = '';
     this.mouse = { x: 0, y: 0 };
     this.lastPlayerMass = 0;
     this.maxMass = 0;
     this.spawnTime = 0;
     this.cellsEaten = 0;
+    this.foodEaten = 0;
     this.lastKiller = null;
     this.onPlayerDeath = null;
     this.onEvent = null;
+    this.onKill = null;
 
     for (let i = 0; i < FOOD_COUNT; i++) this.food.spawnRandom();
 
@@ -50,11 +67,15 @@ export class Game {
       this.viruses.push(this.makeVirus(x, y));
     }
 
+    for (let i = 0; i < POWERUP_COUNT; i++) this.spawnPowerup();
+
     for (let i = 0; i < BOT_COUNT; i++) {
       const bot = {
         key: `bot${i}`,
         name: BOT_NAMES[i % BOT_NAMES.length],
         color: randomCellColor(),
+        // Etwa jeder dritte Bot trägt einen Emoji-Skin (bleibt über Respawns gleich)
+        skin: Math.random() < 0.35 ? SKINS[1 + ((Math.random() * (SKINS.length - 1)) | 0)] : '',
         respawnAt: 0,
         foodTarget: -1,
         retargetAt: 0,
@@ -77,10 +98,10 @@ export class Game {
 
   // ---------- Zellen-Verwaltung ----------
 
-  createCell({ owner, ownerKey, name, color, mass, x, y }) {
+  createCell({ owner, ownerKey, name, color, mass, x, y, skin = '' }) {
     const cell = {
       id: nextId++,
-      owner, ownerKey, name, color,
+      owner, ownerKey, name, color, skin,
       mass, x, y,
       r: radiusFromMass(mass),
       tx: x, ty: y,       // Bewegungsziel
@@ -88,7 +109,7 @@ export class Game {
       mergeAt: 0,
       protectedUntil: 0,
       displayR: radiusFromMass(mass), // sanft animierter Anzeige-Radius
-      view: makeCellView(color, name, this.scene),
+      view: makeCellView(color, name, this.scene, skin),
     };
     this.cells.push(cell);
     return cell;
@@ -166,15 +187,16 @@ export class Game {
     return this.findSafeSpawn();
   }
 
-  spawnPlayer(name) {
+  spawnPlayer(name, color = null, skin = '') {
     // silent: Aufräumen alter Zellen darf nicht den Tod-Callback (Death-Overlay) auslösen
     for (const c of this.playerCells()) this.removeCell(c, true);
     this.playerName = name;
-    this.playerColor = randomCellColor();
+    this.playerColor = color || randomCellColor();
+    this.playerSkin = skin;
     const { x, y } = this.findSafeSpawn();
     const cell = this.createCell({
       owner: 'player', ownerKey: 'player', name,
-      color: this.playerColor, mass: START_MASS, x, y,
+      color: this.playerColor, skin, mass: START_MASS, x, y,
     });
     cell.protectedUntil = this.time + SPAWN_PROTECTION;
     this.playerAlive = true;
@@ -182,6 +204,7 @@ export class Game {
     this.lastPlayerMass = START_MASS;
     this.spawnTime = this.time;
     this.cellsEaten = 0;
+    this.foodEaten = 0;
     this.lastKiller = null;
   }
 
@@ -195,7 +218,7 @@ export class Game {
     bot.aggression = 0.25 + Math.random() * 0.65;
     const cell = this.createCell({
       owner: bot, ownerKey: bot.key, name: bot.name,
-      color: bot.color, mass, x, y,
+      color: bot.color, skin: bot.skin, mass, x, y,
     });
     cell.protectedUntil = this.time + SPAWN_PROTECTION;
   }
@@ -227,7 +250,7 @@ export class Game {
       cell.mergeAt = this.time + delay;
       const child = this.createCell({
         owner: cell.owner, ownerKey, name: cell.name,
-        color: cell.color, mass: cell.mass,
+        color: cell.color, skin: cell.skin, mass: cell.mass,
         x: cell.x + nx * cell.r * 0.2, y: cell.y + ny * cell.r * 0.2,
       });
       child.ix = nx * SPLIT_IMPULSE;
@@ -286,6 +309,7 @@ export class Game {
     this.eatFood();
     this.eatCells();
     this.updateViruses(dt);
+    this.updatePowerups(dt);
     this.applyDecay(dt);
     this.respawnFood(dt);
     this.respawnBots();
@@ -309,7 +333,8 @@ export class Game {
       const d = Math.hypot(dx, dy);
       if (d > 0.001) {
         // In Zielnähe abbremsen, damit Zellen nicht um den Cursor zittern
-        const speed = speedFromMass(cell.mass) * Math.min(1, d / (cell.r * 0.5 + 1));
+        const boost = this.hasSpeed(cell.ownerKey) ? BOOST_SPEED_MULT : 1;
+        const speed = speedFromMass(cell.mass) * boost * Math.min(1, d / (cell.r * 0.5 + 1));
         cell.x += (dx / d) * speed * dt;
         cell.y += (dy / d) * speed * dt;
       }
@@ -377,10 +402,13 @@ export class Game {
 
   eatFood() {
     for (const cell of this.cells) {
-      const gained = this.food.eat(cell, this.time, EJECT_SELF_EAT_DELAY);
-      if (gained > 0) {
-        cell.mass += gained;
-        if (cell.ownerKey === 'player') this.onEvent?.('food');
+      const delta = this.food.eat(cell, this.time, EJECT_SELF_EAT_DELAY);
+      if (delta === 0) continue;
+      // Gift (negatives Delta) kann Masse abziehen, aber nicht unter einen Boden
+      cell.mass = Math.max(10, cell.mass + delta);
+      if (cell.ownerKey === 'player') {
+        this.foodEaten++;
+        this.onEvent?.(delta < 0 ? 'poison' : 'food');
       }
     }
   }
@@ -393,8 +421,9 @@ export class Game {
         const b = this.cells[j];
         if (eaten.has(a) || eaten.has(b)) continue;
         if (a.ownerKey === b.ownerKey) continue;
-        // Spawnschutz: frisch gespawnte Zellen fressen nicht und werden nicht gefressen
-        if (a.protectedUntil > this.time || b.protectedUntil > this.time) continue;
+        // Spawnschutz & Schild-Power-up: geschützte Zellen fressen nicht und
+        // werden nicht gefressen
+        if (this.isShielded(a) || this.isShielded(b)) continue;
 
         let big = null;
         let small = null;
@@ -414,6 +443,12 @@ export class Game {
             this.onEvent?.('eat');
           }
           if (small.ownerKey === 'player') this.lastKiller = big.name;
+          // Kill-Feed: nur „echte" Kills melden (kein Verschlucken winziger Splitter),
+          // Spieler-Beteiligung immer
+          const involvesPlayer = big.ownerKey === 'player' || small.ownerKey === 'player';
+          if (involvesPlayer || small.mass > 24) {
+            this.onKill?.(big.name, small.name, big.ownerKey === 'player', small.ownerKey === 'player');
+          }
         }
       }
     }
@@ -485,6 +520,70 @@ export class Game {
     this.viruses.push(virus);
   }
 
+  // ---------- Power-ups ----------
+
+  spawnPowerup() {
+    const def = POWERUP_TYPES[(Math.random() * POWERUP_TYPES.length) | 0];
+    const { x, y } = randomWorldPos(150);
+    this.powerups.push({
+      x, y, r: POWERUP_RADIUS, type: def.type,
+      view: makePowerupView(this.scene, def.emoji, def.color),
+    });
+  }
+
+  updatePowerups(dt) {
+    for (let i = this.powerups.length - 1; i >= 0; i--) {
+      const p = this.powerups[i];
+      // Aufsammeln: ausreichend große Zelle berührt das Power-up
+      let taken = null;
+      for (const cell of this.cells) {
+        if (cell.mass < POWERUP_MIN_MASS) continue;
+        if (Math.hypot(cell.x - p.x, cell.y - p.y) < cell.r + p.r * 0.4) { taken = cell; break; }
+      }
+      if (taken) {
+        this.applyEffect(taken.ownerKey, p.type);
+        this.particles?.burst(p.x, p.y, p.view.halo.material.color, 16, 260);
+        if (taken.ownerKey === 'player') this.onEvent?.('powerup');
+        disposePowerupView(p.view, this.scene);
+        this.powerups.splice(i, 1);
+        this.nextPowerupAt = this.time + POWERUP_RESPAWN;
+      }
+    }
+    // Nachwachsen lassen, sobald die Wartezeit seit dem letzten Verbrauch um ist
+    if (this.powerups.length < POWERUP_COUNT && this.time >= (this.nextPowerupAt ?? 0)) {
+      this.spawnPowerup();
+      this.nextPowerupAt = this.time + POWERUP_RESPAWN;
+    }
+  }
+
+  applyEffect(ownerKey, type) {
+    let e = this.effects.get(ownerKey);
+    if (!e) { e = { speedUntil: 0, shieldUntil: 0 }; this.effects.set(ownerKey, e); }
+    if (type === 'speed') e.speedUntil = this.time + BOOST_DURATION;
+    else if (type === 'shield') e.shieldUntil = this.time + SHIELD_DURATION;
+  }
+
+  hasSpeed(ownerKey) {
+    const e = this.effects.get(ownerKey);
+    return e ? e.speedUntil > this.time : false;
+  }
+
+  isShielded(cell) {
+    if (cell.protectedUntil > this.time) return true;
+    const e = this.effects.get(cell.ownerKey);
+    return e ? e.shieldUntil > this.time : false;
+  }
+
+  // Restzeiten der Spieler-Effekte fürs HUD (0 wenn inaktiv)
+  playerEffects() {
+    const e = this.effects.get('player');
+    if (!e) return { speed: 0, shield: 0 };
+    return {
+      speed: Math.max(0, e.speedUntil - this.time),
+      shield: Math.max(0, e.shieldUntil - this.time),
+    };
+  }
+
   explodeCell(cell, maxCells) {
     cell.mass += VIRUS_MASS * 0.5;
     const slots = maxCells - this.cellsOf(cell.ownerKey).length;
@@ -498,7 +597,7 @@ export class Game {
       const ang = Math.random() * Math.PI * 2;
       const child = this.createCell({
         owner: cell.owner, ownerKey: cell.ownerKey, name: cell.name,
-        color: cell.color, mass: each, x: cell.x, y: cell.y,
+        color: cell.color, skin: cell.skin, mass: each, x: cell.x, y: cell.y,
       });
       child.ix = Math.cos(ang) * (400 + Math.random() * 250);
       child.iy = Math.sin(ang) * (400 + Math.random() * 250);
@@ -683,6 +782,11 @@ export class Game {
       virus.view.group.position.set(virus.x, virus.y, 1 + Math.min(8, virus.r * 0.01));
       // Gefütterte Viren schwellen sichtbar an
       virus.view.group.scale.setScalar(virus.r * (1 + virus.fed * 0.035));
+    }
+    const pulse = 1 + 0.12 * Math.sin(this.time * 5);
+    for (const p of this.powerups) {
+      p.view.group.position.set(p.x, p.y, 0.6);
+      p.view.group.scale.setScalar(p.r * pulse);
     }
   }
 

@@ -17,6 +17,10 @@ export const FOOD_COUNT = 2600;
 export const FOOD_CAPACITY = 3200;
 export const FOOD_MASS = 1.5;
 export const FOOD_MIN_RADIUS = 8;
+export const GOLD_FOOD_MASS = 12;        // goldenes Futter: viel Masse, selten
+export const POISON_PENALTY = 14;        // Masseverlust beim Fressen von Gift
+export const GOLD_CHANCE = 0.03;
+export const POISON_CHANCE = 0.025;
 
 // Spieler-Aktionen
 export const MIN_SPLIT_MASS = 36;
@@ -36,6 +40,15 @@ export const VIRUS_EXPLODE_RATIO = 1.15;
 export const VIRUS_FEED_COUNT = 7;       // so oft füttern, bis der Virus schießt
 export const VIRUS_MAX = 20;             // Obergrenze für abgeschossene Viren
 export const VIRUS_SHOT_IMPULSE = 900;
+
+// Power-ups
+export const POWERUP_COUNT = 5;          // gleichzeitig in der Welt
+export const POWERUP_RADIUS = 26;
+export const POWERUP_RESPAWN = 8;        // s bis ein aufgesammeltes nachwächst
+export const POWERUP_MIN_MASS = 30;      // so groß muss man zum Aufsammeln sein
+export const BOOST_DURATION = 6;         // s Speed-Boost
+export const BOOST_SPEED_MULT = 1.6;
+export const SHIELD_DURATION = 6;        // s Unverwundbarkeit
 
 // Bots
 export const BOT_COUNT = 24;

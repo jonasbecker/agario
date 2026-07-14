@@ -35,4 +35,7 @@ export const sounds = {
   eject: () => blip(420, 0.08, { type: 'square', vol: 0.04, slide: -130 }),
   virus: () => blip(150, 0.45, { type: 'sawtooth', vol: 0.16, slide: -70 }),
   death: () => blip(330, 0.8, { type: 'triangle', vol: 0.22, slide: -270 }),
+  powerup: () => blip(520, 0.25, { type: 'triangle', vol: 0.18, slide: 480 }),
+  poison: () => blip(180, 0.18, { type: 'sawtooth', vol: 0.14, slide: -90 }),
+  achievement: () => blip(660, 0.3, { type: 'triangle', vol: 0.2, slide: 520 }),
 };

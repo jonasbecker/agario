@@ -1,11 +1,19 @@
 import * as THREE from 'three';
 import {
   WORLD_HALF, FOOD_MASS, FOOD_MIN_RADIUS,
+  GOLD_FOOD_MASS, POISON_PENALTY, GOLD_CHANCE, POISON_CHANCE,
   radiusFromMass, randomFoodColor, randomWorldPos, clamp,
 } from './constants.js';
 import { SpatialGrid } from './grid.js';
 
 const _dummy = new THREE.Object3D();
+
+// Futter-Typen
+export const FOOD_NORMAL = 0;
+export const FOOD_GOLD = 1;
+export const FOOD_POISON = 2;
+const GOLD_COLOR = new THREE.Color(0xffcf3f);
+const POISON_COLOR = new THREE.Color(0xd63a4b);
 
 // Alle Futter-Pellets (normales Futter + ausgestoßene Masse) in einem InstancedMesh.
 export class FoodPool {
@@ -20,6 +28,7 @@ export class FoodPool {
 
     this.alive = new Uint8Array(capacity);
     this.isEject = new Uint8Array(capacity);
+    this.type = new Uint8Array(capacity);
     this.x = new Float32Array(capacity);
     this.y = new Float32Array(capacity);
     this.vx = new Float32Array(capacity);
@@ -41,11 +50,12 @@ export class FoodPool {
     this.mesh.instanceColor.needsUpdate = true;
   }
 
-  spawn({ x, y, mass, color, vx = 0, vy = 0, ownerKey = null, isEject = false, time = 0 }) {
+  spawn({ x, y, mass, color, vx = 0, vy = 0, ownerKey = null, isEject = false, time = 0, type = 0 }) {
     const i = this.free.pop();
     if (i === undefined) return -1;
     this.alive[i] = 1;
     this.isEject[i] = isEject ? 1 : 0;
+    this.type[i] = type;
     this.x[i] = x;
     this.y[i] = y;
     this.vx[i] = vx;
@@ -62,7 +72,14 @@ export class FoodPool {
 
   spawnRandom() {
     const { x, y } = randomWorldPos(20);
-    return this.spawn({ x, y, mass: FOOD_MASS, color: randomFoodColor() });
+    const roll = Math.random();
+    if (roll < GOLD_CHANCE) {
+      return this.spawn({ x, y, mass: GOLD_FOOD_MASS, color: GOLD_COLOR, type: FOOD_GOLD });
+    }
+    if (roll < GOLD_CHANCE + POISON_CHANCE) {
+      return this.spawn({ x, y, mass: FOOD_MASS, color: POISON_COLOR, type: FOOD_POISON });
+    }
+    return this.spawn({ x, y, mass: FOOD_MASS, color: randomFoodColor(), type: FOOD_NORMAL });
   }
 
   kill(i) {
@@ -73,10 +90,11 @@ export class FoodPool {
     this.free.push(i);
   }
 
-  // Lässt eine Zelle alles fressen, dessen Mittelpunkt in ihr liegt. Gibt gewonnene Masse zurück.
+  // Lässt eine Zelle alles fressen, dessen Mittelpunkt in ihr liegt.
+  // Gibt das Netto-Massedelta zurück (Gift verringert, Gold gibt Bonus).
   // Nutzt das Gitter, damit nur Futter in Zellnähe geprüft wird.
   eat(cell, time, selfEatDelay) {
-    let gained = 0;
+    let delta = 0;
     const r2 = cell.r * cell.r;
     this.grid.query(cell.x, cell.y, cell.r, (i) => {
       if (!this.alive[i]) return;
@@ -88,10 +106,10 @@ export class FoodPool {
         this.ownerKey[i] === cell.ownerKey &&
         time - this.bornAt[i] < selfEatDelay
       ) return;
-      gained += this.mass[i];
+      delta += this.type[i] === FOOD_POISON ? -POISON_PENALTY : this.mass[i];
       this.kill(i);
     });
-    return gained;
+    return delta;
   }
 
   update(dt) {

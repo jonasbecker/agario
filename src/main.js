@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { WORLD_HALF, GRID_DIVISIONS, START_MASS, clamp } from './constants.js';
 import { Game } from './game.js';
 import { initSound, sounds } from './sound.js';
+import { SKINS } from './skins.js';
+
+// Auswählbare Spielerfarben
+const COLOR_PALETTE = [
+  0xe74c3c, 0xe67e22, 0xf1c40f, 0x2ecc71, 0x1abc9c,
+  0x3498db, 0x9b59b6, 0xe84393, 0x34495e, 0x95a5a6,
+];
 
 // ---------- Renderer & Szene ----------
 
@@ -142,10 +149,48 @@ const nameInput = document.getElementById('name-input');
 const scoreValue = document.getElementById('score-value');
 const leaderboardList = document.getElementById('leaderboard-list');
 
+// ---------- Farb- & Skin-Auswahl ----------
+
+let selectedColor = Number(localStorage.getItem('agar-color'));
+if (!COLOR_PALETTE.includes(selectedColor)) {
+  selectedColor = COLOR_PALETTE[(Math.random() * COLOR_PALETTE.length) | 0];
+}
+let selectedSkin = localStorage.getItem('agar-skin') ?? '';
+if (!SKINS.includes(selectedSkin)) selectedSkin = '';
+
+const colorSwatches = document.getElementById('color-swatches');
+COLOR_PALETTE.forEach((hex) => {
+  const el = document.createElement('div');
+  el.className = 'swatch' + (hex === selectedColor ? ' sel' : '');
+  el.style.background = `#${hex.toString(16).padStart(6, '0')}`;
+  el.addEventListener('click', () => {
+    selectedColor = hex;
+    localStorage.setItem('agar-color', String(hex));
+    colorSwatches.querySelectorAll('.swatch').forEach((s) => s.classList.remove('sel'));
+    el.classList.add('sel');
+  });
+  colorSwatches.appendChild(el);
+});
+
+const skinSwatches = document.getElementById('skin-swatches');
+SKINS.forEach((emoji) => {
+  const el = document.createElement('div');
+  const isNone = emoji === '';
+  el.className = 'skin' + (isNone ? ' none' : '') + (emoji === selectedSkin ? ' sel' : '');
+  el.textContent = isNone ? 'kein' : emoji;
+  el.addEventListener('click', () => {
+    selectedSkin = emoji;
+    localStorage.setItem('agar-skin', emoji);
+    skinSwatches.querySelectorAll('.skin').forEach((s) => s.classList.remove('sel'));
+    el.classList.add('sel');
+  });
+  skinSwatches.appendChild(el);
+});
+
 function startGame() {
   const name = nameInput.value.trim() || 'Namenloser Blob';
   initSound(); // braucht eine Nutzer-Geste, deshalb hier
-  game.spawnPlayer(name);
+  game.spawnPlayer(name, new THREE.Color(selectedColor), selectedSkin);
   startOverlay.classList.add('hidden');
   deathOverlay.classList.add('hidden');
   // Fokus vom Button nehmen, damit Leertaste/Enter ihn nicht erneut auslösen
@@ -205,6 +250,37 @@ game.onEvent = (type) => {
   sounds[type]?.();
 };
 
+// ---------- Kill-Feed ----------
+
+const killFeed = document.getElementById('kill-feed');
+
+game.onKill = (killerName, victimName, killerIsPlayer, victimIsPlayer) => {
+  const el = document.createElement('div');
+  el.className = 'kill' + (killerIsPlayer || victimIsPlayer ? ' me' : '');
+  el.innerHTML = `🍽️ <b>${escapeHtml(killerName)}</b> → ${escapeHtml(victimName)}`;
+  killFeed.prepend(el);
+  while (killFeed.children.length > 5) killFeed.lastChild.remove();
+  setTimeout(() => el.remove(), 4000);
+};
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// ---------- Power-up-Effekt-HUD ----------
+
+const effectsEl = document.getElementById('effects');
+
+function updateEffects() {
+  const fx = game.playerEffects();
+  let html = '';
+  if (fx.speed > 0) html += `<div class="fx">⚡ ${Math.ceil(fx.speed)}s</div>`;
+  if (fx.shield > 0) html += `<div class="fx">🛡️ ${Math.ceil(fx.shield)}s</div>`;
+  effectsEl.innerHTML = html;
+}
+
 // ---------- Minimap ----------
 
 const minimap = document.getElementById('minimap');
@@ -225,6 +301,7 @@ function drawMinimap() {
   minimapCtx.clearRect(0, 0, size, size);
 
   for (const v of game.viruses) drawMinimapDot(mapX(v.x), mapY(v.y), 2, '#33cc33');
+  for (const p of game.powerups) drawMinimapDot(mapX(p.x), mapY(p.y), 2, '#ffd54f');
   for (const c of game.cells) {
     if (c.owner !== 'player') drawMinimapDot(mapX(c.x), mapY(c.y), 2, 'rgba(255,255,255,0.45)');
   }
@@ -282,6 +359,7 @@ function loop() {
   game.update(dt);
   updateCamera(dt);
   updateHUD(dt);
+  updateEffects();
   drawMinimap();
   renderer.render(scene, camera);
 }

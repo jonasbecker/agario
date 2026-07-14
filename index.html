@@ -60,6 +60,32 @@
     #leaderboard li.me { color: #7fdc66; font-weight: 700; opacity: 1; }
     #leaderboard li .rank { opacity: 0.6; margin-right: 6px; }
 
+    #kill-feed {
+      position: fixed; right: 16px; top: 300px;
+      width: 220px; display: flex; flex-direction: column; gap: 5px;
+      pointer-events: none; align-items: flex-end;
+    }
+    #kill-feed .kill {
+      background: rgba(20, 30, 40, 0.55); color: #fff;
+      border-radius: 7px; padding: 5px 10px; font-size: 12.5px;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      animation: killfade 4s forwards;
+    }
+    #kill-feed .kill b { color: #ffd54f; }
+    #kill-feed .kill.me b { color: #7fdc66; }
+    @keyframes killfade { 0%,80% { opacity: 0.95; } 100% { opacity: 0; } }
+
+    #effects {
+      position: fixed; left: 16px; bottom: 58px;
+      display: flex; gap: 8px; pointer-events: none;
+    }
+    #effects .fx {
+      background: rgba(20, 30, 40, 0.55); color: #fff;
+      border-radius: 8px; padding: 6px 11px; font-size: 14px; font-weight: 600;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: flex; align-items: center; gap: 6px;
+    }
+
     .overlay {
       position: fixed; inset: 0;
       display: flex; align-items: center; justify-content: center;
@@ -82,6 +108,22 @@
       margin-bottom: 14px; text-align: center;
     }
     .card input:focus { border-color: #43a047; }
+    .picker { margin-bottom: 14px; }
+    .picker .picker-label { font-size: 12px; color: #90a4ae; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .swatches { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
+    .swatch {
+      width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+      border: 3px solid transparent; transition: transform 0.1s;
+    }
+    .swatch:hover { transform: scale(1.12); }
+    .swatch.sel { border-color: #263238; }
+    .skin {
+      width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; font-size: 20px;
+      background: #eceff1; border: 2px solid transparent;
+    }
+    .skin.none { font-size: 12px; color: #90a4ae; }
+    .skin.sel { border-color: #43a047; background: #e8f5e9; }
     .card button {
       width: 100%; padding: 13px; font-size: 17px; font-weight: 700;
       color: #fff; background: #43a047; border: none; border-radius: 8px;
@@ -117,6 +159,10 @@
     <ol id="leaderboard-list"></ol>
   </div>
 
+  <div id="kill-feed"></div>
+
+  <div id="effects"></div>
+
   <canvas id="minimap" class="panel" width="150" height="150"></canvas>
 
   <div id="touch-controls">
@@ -129,6 +175,14 @@
       <h1>Agar <span class="green">Klon</span></h1>
       <p class="sub">Friss oder werde gefressen</p>
       <input id="name-input" type="text" maxlength="15" placeholder="Dein Name" autocomplete="off" />
+      <div class="picker">
+        <div class="picker-label">Farbe</div>
+        <div class="swatches" id="color-swatches"></div>
+      </div>
+      <div class="picker">
+        <div class="picker-label">Skin</div>
+        <div class="swatches" id="skin-swatches"></div>
+      </div>
       <button id="play-btn">Spielen</button>
       <p id="start-highscore" class="highscore hidden">🏆 Bestwert: <b id="start-highscore-value">0</b></p>
       <div class="controls">

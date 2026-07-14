@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getSkinTexture } from './skins.js';
 
 // Kreissegmente pro Zelle — jede Zelle bekommt eine eigene Geometrie,
 // deren Rand pro Frame organisch wabert (siehe updateCellWobble)
@@ -54,7 +55,7 @@ function getLabelMaterial(text) {
 
 // Zelle = dunkler Rand + Füllung + optionales Namensschild, alles in einer Gruppe,
 // die pro Frame auf den Zellradius skaliert wird.
-export function makeCellView(color, name, scene) {
+export function makeCellView(color, name, scene, skin = '') {
   const group = new THREE.Group();
   const geo = new THREE.CircleGeometry(1, CELL_SEGMENTS);
 
@@ -64,7 +65,12 @@ export function makeCellView(color, name, scene) {
   );
   group.add(rim);
 
-  const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+  // Skin: Emoji-Textur überlagert die Farbfüllung (map + color multiplizieren)
+  const skinTex = getSkinTexture(skin);
+  const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color: skinTex ? 0xffffff : color,
+    map: skinTex,
+  }));
   fill.scale.setScalar(0.93);
   fill.position.z = 0.05;
   group.add(fill);
@@ -125,4 +131,46 @@ export function makeVirusView(scene) {
 // Sorgt dafür, dass Labels großer Zellen über denen kleiner Zellen liegen
 export function setLabelOrder(view, radius) {
   if (view.label) view.label.renderOrder = 100 + radius;
+}
+
+// Power-up: pulsierender heller Kreis mit Emoji-Symbol, als Sprite-Gruppe.
+const powerupTexCache = new Map();
+function getPowerupTexture(emoji) {
+  let tex = powerupTexCache.get(emoji);
+  if (tex) return tex;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.font = `${size * 0.7}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.04);
+  tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  powerupTexCache.set(emoji, tex);
+  return tex;
+}
+
+export function makePowerupView(scene, emoji, color) {
+  const group = new THREE.Group();
+  const halo = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 24),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 })
+  );
+  group.add(halo);
+  const icon = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: getPowerupTexture(emoji), depthTest: false, depthWrite: false, transparent: true,
+  }));
+  icon.scale.set(1.5, 1.5, 1);
+  icon.position.z = 0.1;
+  group.add(icon);
+  scene.add(group);
+  return { group, halo };
+}
+
+export function disposePowerupView(view, scene) {
+  scene.remove(view.group);
+  view.halo.geometry.dispose();
+  view.halo.material.dispose();
 }
