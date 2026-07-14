@@ -42,6 +42,24 @@ const borderGeo = new THREE.BufferGeometry().setFromPoints([
 ]);
 scene.add(new THREE.LineLoop(borderGeo, new THREE.LineBasicMaterial({ color: 0x90a4ae })));
 
+// Parallaxe-„Staub" hinter dem Raster: eine blasse Punktwolke, die der Kamera
+// leicht nachläuft und so Tiefe erzeugt (ein Draw-Call, konstante Pixelgröße)
+const DUST_COUNT = 260;
+const dustPositions = new Float32Array(DUST_COUNT * 3);
+for (let i = 0; i < DUST_COUNT; i++) {
+  dustPositions[i * 3] = (Math.random() * 2 - 1) * WORLD_HALF * 1.15;
+  dustPositions[i * 3 + 1] = (Math.random() * 2 - 1) * WORLD_HALF * 1.15;
+  dustPositions[i * 3 + 2] = 0;
+}
+const dustGeo = new THREE.BufferGeometry();
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  color: 0xbcc8ce, size: 5, sizeAttenuation: false, transparent: true, opacity: 0.45,
+}));
+dust.position.z = -3;
+dust.frustumCulled = false;
+scene.add(dust);
+
 // ---------- Spiel ----------
 
 const game = new Game(scene);
@@ -65,12 +83,17 @@ function updateCamera(dt) {
     const targetH = zoom * Math.max(
       700,
       700 * Math.pow(focus.totalMass / START_MASS, 0.15),
-      (focus.spread + focus.maxR * 2) * 2.4
+      (focus.spread + focus.maxR * 2) * 2.2
     );
-    viewH += (targetH - viewH) * Math.min(1, dt * 2);
+    // Rauszoomen langsamer als Reinzoomen, damit weit gestreute Split-Zellen die
+    // Kamera nicht ruckartig herausreißen
+    const zoomLerp = targetH > viewH ? dt * 1.2 : dt * 3;
+    viewH += (targetH - viewH) * Math.min(1, zoomLerp);
     camX += (focus.x - camX) * Math.min(1, dt * 5);
     camY += (focus.y - camY) * Math.min(1, dt * 5);
   }
+  // Staub-Ebene läuft der Kamera leicht nach (Parallaxe/Tiefe)
+  dust.position.set(camX * 0.08, camY * 0.08, -3);
   // Erschütterung: zufälliger Versatz, proportional zur aktuellen Kamerahöhe,
   // damit der Effekt bei jedem Zoom gleich stark wirkt
   let sx = 0;

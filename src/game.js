@@ -39,6 +39,7 @@ export class Game {
     this.food = new FoodPool(scene, FOOD_CAPACITY);
     this.particles = new ParticlePool(scene);
     this.cells = [];
+    this.dyingViews = []; // gefressene Zellen schrumpfen kurz weich, bevor sie weg sind
     this.viruses = [];
     this.bots = [];
 
@@ -121,17 +122,23 @@ export class Game {
       mergeAt: 0,
       protectedUntil: 0,
       displayR: radiusFromMass(mass), // sanft animierter Anzeige-Radius
+      eatPulse: 0,        // kurzer Squash-Impuls beim Fressen (0..1, klingt ab)
       view: makeCellView(color, name, this.scene, skin),
     };
     this.cells.push(cell);
     return cell;
   }
 
-  removeCell(cell, silent = false) {
+  removeCell(cell, silent = false, collapse = false) {
     const idx = this.cells.indexOf(cell);
     if (idx === -1) return;
     this.cells.splice(idx, 1);
-    disposeCellView(cell.view, this.scene);
+    if (collapse) {
+      // View noch kurz weiterleben lassen und wegschrumpfen (siehe updateDyingViews)
+      this.dyingViews.push({ view: cell.view, t: 0, scale0: cell.view.group.scale.x });
+    } else {
+      disposeCellView(cell.view, this.scene);
+    }
 
     if (cell.owner === 'player') {
       if (!silent && !this.cells.some((c) => c.owner === 'player')) {
@@ -235,13 +242,14 @@ export class Game {
   }
 
   spawnBot(bot) {
-    // Mit ~40 % Chance in Spielernähe spawnen (nur wenn der Spieler lebt),
-    // damit der Bildschirm beim Großwerden belebt bleibt
-    const nearPlayer = this.playerAlive && this.playerMass() > 60 && Math.random() < 0.4;
+    // Mit ~55 % Chance in Spielernähe spawnen (nur wenn der Spieler lebt),
+    // damit beim Großwerden mehr Druck und Action in Sicht sind
+    const nearPlayer = this.playerAlive && this.playerMass() > 40 && Math.random() < 0.55;
     const { x, y } = nearPlayer ? this.findSpawnNearPlayer() : this.findSafeSpawn();
     const mass = 15 + Math.random() * 35;
-    // Persönlichkeit: wie aggressiv dieser Bot Beute jagt (wird pro Leben neu gewürfelt)
-    bot.aggression = 0.25 + Math.random() * 0.65;
+    // Persönlichkeit: wie aggressiv dieser Bot Beute jagt (wird pro Leben neu gewürfelt);
+    // höhere Untergrenze -> insgesamt fordernder
+    bot.aggression = 0.35 + Math.random() * 0.6;
     const cell = this.createCell({
       owner: bot, ownerKey: bot.key, name: bot.name,
       color: bot.color, skin: bot.skin, mass, x, y,
@@ -341,6 +349,7 @@ export class Game {
     this.respawnFood(dt);
     this.respawnBots();
     this.syncViews(dt);
+    this.updateDyingViews(dt);
     if (this.mode === 'battleroyale') this.checkVictory();
 
     if (this.playerAlive) {
@@ -434,6 +443,8 @@ export class Game {
       if (delta === 0) continue;
       // Gift (negatives Delta) kann Masse abziehen, aber nicht unter einen Boden
       cell.mass = Math.max(10, cell.mass + delta);
+      // Kurzer Squash-Impuls beim Aufsaugen von Futter (nur positives Delta)
+      if (delta > 0) cell.eatPulse = Math.min(1, cell.eatPulse + 0.6);
       if (cell.ownerKey === 'player') {
         this.foodEaten++;
         this.onEvent?.(delta < 0 ? 'poison' : 'food');
@@ -484,7 +495,7 @@ export class Game {
         }
       }
     }
-    for (const cell of eaten) this.removeCell(cell);
+    for (const cell of eaten) this.removeCell(cell, false, true);
   }
 
   updateViruses(dt) {
@@ -590,6 +601,17 @@ export class Game {
       this.spawnPowerup();
       this.nextPowerupAt = this.time + POWERUP_RESPAWN;
     }
+  }
+
+  // Nächstes Power-up in Reichweite (oder null) — für die Bot-KI
+  _nearestPowerup(x, y, maxDist) {
+    let best = null;
+    let bestD = maxDist;
+    for (const p of this.powerups) {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
   }
 
   applyEffect(ownerKey, type) {
@@ -739,7 +761,7 @@ export class Game {
         if (strength > c.mass * 1.3 && d - o.r < 350 + c.r && d < threatDist) {
           threat = o;
           threatDist = d;
-        } else if (c.mass > o.mass * 1.3 && d < 200 + 400 * bot.aggression + c.r && d < preyDist) {
+        } else if (c.mass > o.mass * 1.3 && d < 260 + 480 * bot.aggression + c.r && d < preyDist) {
           prey = o;
           preyDist = d;
         }
@@ -747,6 +769,7 @@ export class Game {
 
       let tx = c.tx;
       let ty = c.ty;
+      let grabPowerup = null;
 
       if (threat) {
         const dx = c.x - threat.x;
@@ -754,6 +777,20 @@ export class Game {
         const d = Math.hypot(dx, dy) || 1;
         tx = c.x + (dx / d) * 500;
         ty = c.y + (dy / d) * 500;
+        // Virus als Falle: würde der Verfolger daran zerplatzen, ich selbst aber
+        // nicht, dann bewusst zu einem nahen Virus fliehen
+        if (
+          threat.mass > VIRUS_MASS * VIRUS_EXPLODE_RATIO &&
+          c.mass <= VIRUS_MASS * VIRUS_EXPLODE_RATIO
+        ) {
+          let bv = null;
+          let bvd = Infinity;
+          for (const v of this.viruses) {
+            const vd = Math.hypot(v.x - c.x, v.y - c.y);
+            if (vd < 650 && vd < bvd) { bv = v; bvd = vd; }
+          }
+          if (bv) { tx = bv.x; ty = bv.y; }
+        }
         // In der Nähe der Wand zur Mitte hin ausweichen
         if (Math.abs(tx) > WORLD_HALF - 100) tx *= 0.7;
         if (Math.abs(ty) > WORLD_HALF - 100) ty *= 0.7;
@@ -767,13 +804,17 @@ export class Game {
           cells.length < MAX_BOT_CELLS &&
           c.mass >= MIN_SPLIT_MASS &&
           c.mass / 2 > prey.mass * EAT_MASS_RATIO &&
-          preyDist < c.r + 420 &&
-          Math.random() < bot.aggression * 3 * dt
+          preyDist < c.r + 480 &&
+          Math.random() < bot.aggression * 3.6 * dt
         ) {
           this.splitCells(bot.key, prey.x, prey.y, MAX_BOT_CELLS);
         }
+      } else if (c.mass >= POWERUP_MIN_MASS && (grabPowerup = this._nearestPowerup(c.x, c.y, 750))) {
+        // 3. Power-up gezielt holen, wenn eins in Reichweite und die Zelle groß genug ist
+        tx = grabPowerup.x;
+        ty = grabPowerup.y;
       } else {
-        // 3. Futter suchen: nächstes Pellet in wachsendem Radius per Grid,
+        // 4. Futter suchen: nächstes Pellet in wachsendem Radius per Grid,
         // Zufallsstichprobe als Fallback wenn nichts in der Nähe ist
         const f = this.food;
         if (
@@ -836,6 +877,24 @@ export class Game {
     }
   }
 
+  // Gefressene Zellen kurz (~0,18 s) auf Skala 0 schrumpfen lassen, dann entsorgen.
+  updateDyingViews(dt) {
+    const DUR = 0.18;
+    for (let i = this.dyingViews.length - 1; i >= 0; i--) {
+      const d = this.dyingViews[i];
+      d.t += dt;
+      const k = d.t / DUR;
+      if (k >= 1) {
+        disposeCellView(d.view, this.scene);
+        this.dyingViews.splice(i, 1);
+      } else {
+        // kurz aufploppen, dann kollabieren
+        const s = d.scale0 * (1 + 0.25 * k) * (1 - k);
+        d.view.group.scale.setScalar(Math.max(0.001, s));
+      }
+    }
+  }
+
   // ---------- Rendering-Sync ----------
 
   syncViews(dt) {
@@ -851,9 +910,10 @@ export class Game {
       else if (!this.settings.massLabels && v.massLabel.visible) updateMassLabel(v, 0, false);
       // Radius sanft zum Sollwert animieren (weiches Wachsen/Schrumpfen)
       cell.displayR += (cell.r - cell.displayR) * Math.min(1, dt * 8);
+      cell.eatPulse *= Math.exp(-9 * dt); // Squash-Impuls abklingen lassen
       // Größere Zellen leicht höher, damit sie kleinere überdecken
       v.group.position.set(cell.x, cell.y, 1 + Math.min(8, cell.displayR * 0.01));
-      v.group.scale.setScalar(cell.displayR);
+      v.group.scale.setScalar(cell.displayR * (1 + 0.12 * cell.eatPulse));
       setLabelOrder(v, cell.displayR);
 
       // Spawnschutz: Zelle pulsiert halbtransparent

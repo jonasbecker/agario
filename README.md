@@ -18,8 +18,8 @@ Dann http://localhost:5173 öffnen.
 | Eingabe | Aktion |
 | --- | --- |
 | Maus | Zelle bewegen |
-| Leertaste | Teilen (bis 16 Zellen, verschmelzen nach Cooldown) |
-| W | Masse abgeben |
+| Leertaste | Teilen (bis 16 Zellen, verschmelzen nach kurzem Cooldown) |
+| W (halten) | Masse abgeben — gedrückt halten stößt fortlaufend aus |
 | Mausrad | Heraus-/Heranzoomen (begrenzt) |
 | Touch | Zelle folgt dem Finger; Buttons für Teilen & Masse abgeben |
 | ⚙️ | Einstellungen (Lautstärke, Effekte, Minimap …) |
@@ -32,18 +32,19 @@ Dann http://localhost:5173 öffnen.
 
 ## Features
 
-- 24 KI-Bots mit zufälliger Aggressions-Persönlichkeit (jagen, fliehen, grasen)
+- 24 fordernde KI-Bots mit zufälliger Aggressions-Persönlichkeit (jagen, fliehen, grasen)
 - Bots splitten wie echte Spieler: Split-Angriffe auf Beute, bis zu 4 Zellen,
   zerplatzen am Virus in Teilzellen und bewerten Gegner nach Gesamtmasse
+- Bots holen gezielt Power-ups und locken größere Verfolger in Viren (Fallen)
 - Viren füttern: 7× Masse (W) in einen Virus schießen lässt ihn einen neuen
   Virus in Schussrichtung feuern
 - 2600 Futter-Pellets als InstancedMesh (ein Draw-Call), räumliches Gitter für
   schnelle Kollisionen — der Bildschirm bleibt auch beim Großwerden gefüllt
 - Futter-Typen: goldenes Futter (viel Masse) und rotes Gift (Masseverlust)
-- Power-ups: Speed-Boost (⚡) und Schild (🛡️) als Welt-Pickups
+- Power-ups: Speed-Boost (⚡) und Schild (🛡️, offensiv nutzbar) als Welt-Pickups
 - Emoji-Skins und Farbwähler auf dem Startscreen
 - Grüne Viren, die große Zellen zerplatzen lassen
-- Splitten, Masse ausstoßen, Wiederverschmelzen wie im Original
+- Splitten, Masse ausstoßen, zügiges Wiederverschmelzen wie im Original
 - 3 Sekunden Spawnschutz, sichere Spawnpunkte
 - Automatischer Kamera-Zoom, Live-Bestenliste, Minimap, Kill-Feed
 - Death-/Victory-Screen mit Statistik, Highscore und persistenten Gesamtstatistiken
@@ -51,6 +52,8 @@ Dann http://localhost:5173 öffnen.
   Minimap, Masse-Anzeige)
 - Fress-Partikel & Death-Schockwellen, Screen-Shake, synthetisierte
   WebAudio-Sounds, organisch wabernde Zellränder
+- Weiches Kollabieren gefressener Zellen, Squash-Impuls beim Fressen,
+  ruhiger Auto-Zoom und Parallaxe-Tiefe im Hintergrund
 - Touch-Steuerung für Handy/Tablet
 
 ## Tuning
