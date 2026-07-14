@@ -83,13 +83,61 @@ export function makeCellView(color, name, scene, skin = '') {
     group.add(label);
   }
 
+  // Optionales Masse-Label (unter dem Namen), standardmäßig unsichtbar
+  const massLabel = new THREE.Sprite();
+  massLabel.scale.set(1.4, 0.35, 1);
+  massLabel.position.set(0, -0.42, 0.11);
+  massLabel.visible = false;
+  group.add(massLabel);
+
   scene.add(group);
   return {
-    group, rim, fill, label, geo,
+    group, rim, fill, label, massLabel, geo, massShown: -1,
     // Zufällige Phase/Tempo, damit nicht alle Zellen synchron wabern
     wobblePhase: Math.random() * Math.PI * 2,
     wobbleSpeed: 2 + Math.random() * 1.5,
   };
+}
+
+// Masse-Zahl als Sprite; Materialien werden über einen Cache geteilt, damit
+// nicht pro Zelle und Frame eine neue Textur entsteht.
+const massMaterialCache = new Map();
+function getMassMaterial(value) {
+  let mat = massMaterialCache.get(value);
+  if (mat) return mat;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 48;
+  const ctx = canvas.getContext('2d');
+  ctx.font = "bold 30px 'Segoe UI', Helvetica, Arial, sans-serif";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+  ctx.lineWidth = 6;
+  ctx.strokeText(value, 64, 26);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(value, 64, 26);
+  mat = new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false,
+  });
+  massMaterialCache.set(value, mat);
+  return mat;
+}
+
+// Zeigt/versteckt die Masse-Zahl; aktualisiert die Textur nur bei Wertwechsel.
+export function updateMassLabel(view, mass, enabled) {
+  const ml = view.massLabel;
+  if (!enabled) {
+    if (ml.visible) ml.visible = false;
+    return;
+  }
+  ml.visible = true;
+  const rounded = Math.round(mass);
+  if (rounded !== view.massShown) {
+    view.massShown = rounded;
+    ml.material = getMassMaterial(String(rounded));
+  }
 }
 
 // Lässt den Zellrand organisch wabern: Ring-Vertices der Einheitskreis-Geometrie
@@ -173,4 +221,20 @@ export function disposePowerupView(view, scene) {
   scene.remove(view.group);
   view.halo.geometry.dispose();
   view.halo.material.dispose();
+}
+
+// Battle-Royale-Zonengrenze: roter Kreisumriss (Einheitskreis, pro Frame skaliert)
+export function makeZoneView(scene) {
+  const pts = [];
+  const seg = 96;
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: 0xff3b3b }));
+  line.position.z = -1;
+  line.visible = false;
+  scene.add(line);
+  return { line, geo };
 }

@@ -22,22 +22,35 @@ Dann http://localhost:5173 öffnen.
 | W | Masse abgeben |
 | Mausrad | Heraus-/Heranzoomen (begrenzt) |
 | Touch | Zelle folgt dem Finger; Buttons für Teilen & Masse abgeben |
+| ⚙️ | Einstellungen (Lautstärke, Effekte, Minimap …) |
+
+## Spielmodi
+
+- **Klassisch** — endlos wachsen, größter Blob werden
+- **Battle Royale** — eine rote Zone schrumpft stufenweise, außerhalb verliert man
+  Masse; wer als letzter übrig bleibt, gewinnt
 
 ## Features
 
-- 14 KI-Bots mit zufälliger Aggressions-Persönlichkeit (jagen, fliehen, grasen)
+- 24 KI-Bots mit zufälliger Aggressions-Persönlichkeit (jagen, fliehen, grasen)
 - Bots splitten wie echte Spieler: Split-Angriffe auf Beute, bis zu 4 Zellen,
   zerplatzen am Virus in Teilzellen und bewerten Gegner nach Gesamtmasse
 - Viren füttern: 7× Masse (W) in einen Virus schießen lässt ihn einen neuen
   Virus in Schussrichtung feuern
-- 1000 Futter-Pellets als InstancedMesh (ein Draw-Call)
+- 2600 Futter-Pellets als InstancedMesh (ein Draw-Call), räumliches Gitter für
+  schnelle Kollisionen — der Bildschirm bleibt auch beim Großwerden gefüllt
+- Futter-Typen: goldenes Futter (viel Masse) und rotes Gift (Masseverlust)
+- Power-ups: Speed-Boost (⚡) und Schild (🛡️) als Welt-Pickups
+- Emoji-Skins und Farbwähler auf dem Startscreen
 - Grüne Viren, die große Zellen zerplatzen lassen
 - Splitten, Masse ausstoßen, Wiederverschmelzen wie im Original
 - 3 Sekunden Spawnschutz, sichere Spawnpunkte
-- Automatischer Kamera-Zoom, Live-Bestenliste, Minimap
-- Death-Screen mit Statistik („Gefressen von …", gefressene Zellen) und
-  Highscore in localStorage
-- Fress-Partikel, synthetisierte WebAudio-Sounds, organisch wabernde Zellränder
+- Automatischer Kamera-Zoom, Live-Bestenliste, Minimap, Kill-Feed
+- Death-/Victory-Screen mit Statistik, Highscore und persistenten Gesamtstatistiken
+- Freischaltbare Erfolge, Einstellungsmenü (Lautstärke, Effekte, Wobble,
+  Minimap, Masse-Anzeige)
+- Fress-Partikel & Death-Schockwellen, Screen-Shake, synthetisierte
+  WebAudio-Sounds, organisch wabernde Zellränder
 - Touch-Steuerung für Handy/Tablet
 
 ## Tuning
@@ -49,10 +62,15 @@ liegen gesammelt in [`src/constants.js`](src/constants.js).
 
 | Datei | Zuständigkeit |
 | --- | --- |
-| `src/main.js` | Renderer, Kamera, Eingabe, HUD, Minimap, Spielschleife |
-| `src/game.js` | Spiellogik: Fressen, Splitten, Viren, Bot-KI |
-| `src/food.js` | Futter-Pool (InstancedMesh) |
+| `src/main.js` | Renderer, Kamera, Eingabe, HUD, Minimap, Overlays, Spielschleife |
+| `src/game.js` | Spiellogik: Fressen, Splitten, Viren, Power-ups, Battle Royale, Bot-KI |
+| `src/food.js` | Futter-Pool (InstancedMesh) mit Futter-Typen |
+| `src/grid.js` | Räumliches Gitter für schnelle Nachbarschaftssuche |
 | `src/particles.js` | Effekt-Partikel (InstancedMesh) |
 | `src/sound.js` | Synthetisierte Sound-Effekte (WebAudio) |
-| `src/cell.js` | Zell-Optik, Wobble, Namensschilder, Virus-Geometrie |
+| `src/cell.js` | Zell-Optik, Wobble, Skins, Namens-/Masse-Schilder, Virus & Zone |
+| `src/skins.js` | Emoji-Skin-Texturen |
+| `src/stats.js` | Persistente Statistiken (localStorage) |
+| `src/achievements.js` | Erfolg-Definitionen und Freischaltung |
+| `src/settings.js` | Nutzereinstellungen (localStorage) |
 | `src/constants.js` | Alle Spielparameter |

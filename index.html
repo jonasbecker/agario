@@ -124,6 +124,21 @@
     }
     .skin.none { font-size: 12px; color: #90a4ae; }
     .skin.sel { border-color: #43a047; background: #e8f5e9; }
+    .modes { display: flex; gap: 8px; margin-bottom: 16px; }
+    .mode-btn {
+      flex: 1; padding: 10px 6px; border: 2px solid #cfd8dc; border-radius: 8px;
+      background: #fff; cursor: pointer; font-family: inherit; font-size: 14px;
+      color: #607d8b; font-weight: 600;
+    }
+    .mode-btn .mode-desc { display: block; font-size: 11px; font-weight: 400; color: #90a4ae; margin-top: 2px; }
+    .mode-btn.sel { border-color: #43a047; background: #e8f5e9; color: #2e7d32; }
+
+    #danger-vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0;
+      transition: opacity 0.25s;
+      box-shadow: inset 0 0 160px 40px rgba(220, 40, 50, 0.7);
+    }
+    #danger-vignette.on { opacity: 1; }
     .card button {
       width: 100%; padding: 13px; font-size: 17px; font-weight: 700;
       color: #fff; background: #43a047; border: none; border-radius: 8px;
@@ -147,10 +162,69 @@
       border-radius: 6px; padding: 2px 8px; font-size: 12px; margin-left: 4px;
     }
     .card .hidden, .record.hidden { display: none; }
+
+    .card .card-links { display: flex; gap: 10px; margin-top: 14px; justify-content: center; }
+    .card .link-btn {
+      background: none; border: none; color: #607d8b; cursor: pointer;
+      font-family: inherit; font-size: 13px; text-decoration: underline; padding: 4px;
+    }
+    .card.wide { max-width: 460px; }
+    .card h2 { color: #263238; font-size: 22px; margin-bottom: 16px; }
+
+    /* Einstellungen */
+    .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .setting label { color: #455a64; font-size: 15px; }
+    .setting input[type=range] { width: 130px; }
+    .switch { position: relative; width: 46px; height: 26px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #cfd8dc; border-radius: 26px; cursor: pointer; transition: 0.2s; }
+    .slider::before { content: ''; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+    .switch input:checked + .slider { background: #43a047; }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+
+    /* Statistik & Erfolge */
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 20px; text-align: left; }
+    .stat-grid .s-label { color: #78909c; font-size: 13px; }
+    .stat-grid .s-value { color: #263238; font-weight: 700; font-size: 15px; }
+    .ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .ach {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 26px; opacity: 0.28; filter: grayscale(1);
+    }
+    .ach.unlocked { opacity: 1; filter: none; }
+    .ach .ach-name { font-size: 9px; color: #607d8b; text-align: center; line-height: 1.1; filter: none; }
+
+    #settings-btn {
+      position: fixed; left: 16px; top: 16px; width: 42px; height: 42px;
+      font-size: 20px; cursor: pointer; z-index: 6; border: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    #toasts {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 8; pointer-events: none;
+    }
+    #toasts .toast {
+      background: rgba(30, 40, 50, 0.9); color: #fff; border-radius: 10px;
+      padding: 10px 18px; font-size: 14px; font-weight: 600;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3); animation: toastpop 4s forwards;
+    }
+    #toasts .toast .t-icon { font-size: 22px; }
+    #toasts .toast .t-sub { display: block; font-size: 11px; font-weight: 400; opacity: 0.8; }
+    @keyframes toastpop {
+      0% { opacity: 0; transform: translateY(-12px); }
+      10%, 82% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-12px); }
+    }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <div id="danger-vignette"></div>
+
+  <button id="settings-btn" class="panel" title="Einstellungen">⚙️</button>
+  <div id="toasts"></div>
 
   <div id="score" class="panel">Masse: <span id="score-value">0</span></div>
 
@@ -175,6 +249,10 @@
       <h1>Agar <span class="green">Klon</span></h1>
       <p class="sub">Friss oder werde gefressen</p>
       <input id="name-input" type="text" maxlength="15" placeholder="Dein Name" autocomplete="off" />
+      <div class="modes" id="mode-select">
+        <button class="mode-btn sel" data-mode="classic" type="button">Klassisch<span class="mode-desc">Endlos wachsen</span></button>
+        <button class="mode-btn" data-mode="battleroyale" type="button">Battle Royale<span class="mode-desc">Zone schrumpft</span></button>
+      </div>
       <div class="picker">
         <div class="picker-label">Farbe</div>
         <div class="swatches" id="color-swatches"></div>
@@ -185,6 +263,9 @@
       </div>
       <button id="play-btn">Spielen</button>
       <p id="start-highscore" class="highscore hidden">🏆 Bestwert: <b id="start-highscore-value">0</b></p>
+      <div class="card-links">
+        <button class="link-btn" id="stats-link" type="button">📊 Statistiken & Erfolge</button>
+      </div>
       <div class="controls">
         <div>🖱️ <b>Maus</b> — bewegen</div>
         <div><kbd>Leertaste</kbd> — teilen</div>
@@ -207,6 +288,61 @@
         🏆 Bestwert: <b id="death-highscore">0</b> <span id="new-record" class="record hidden">Neuer Rekord!</span>
       </div>
       <button id="respawn-btn">Nochmal spielen</button>
+    </div>
+  </div>
+
+  <div id="victory-overlay" class="overlay hidden">
+    <div class="card">
+      <h1>🏆 Gewonnen!</h1>
+      <p class="sub">Letzter Blob im Battle Royale</p>
+      <div class="stats">
+        Endmasse: <b id="v-final-mass">0</b><br />
+        Größte Masse: <b id="v-best-mass">0</b><br />
+        Zellen gefressen: <b id="v-cells-eaten">0</b><br />
+        Überlebt: <b id="v-time-alive">0s</b>
+      </div>
+      <button id="victory-btn">Nochmal spielen</button>
+    </div>
+  </div>
+
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="card">
+      <h2>⚙️ Einstellungen</h2>
+      <div class="setting">
+        <label for="opt-volume">Lautstärke</label>
+        <input type="range" id="opt-volume" min="0" max="100" />
+      </div>
+      <div class="setting">
+        <label for="opt-sfx">Soundeffekte</label>
+        <span class="switch"><input type="checkbox" id="opt-sfx" /><span class="slider"></span></span>
+      </div>
+      <div class="setting">
+        <label for="opt-wobble">Zell-Wobble</label>
+        <span class="switch"><input type="checkbox" id="opt-wobble" /><span class="slider"></span></span>
+      </div>
+      <div class="setting">
+        <label for="opt-particles">Partikel-Effekte</label>
+        <span class="switch"><input type="checkbox" id="opt-particles" /><span class="slider"></span></span>
+      </div>
+      <div class="setting">
+        <label for="opt-minimap">Minimap</label>
+        <span class="switch"><input type="checkbox" id="opt-minimap" /><span class="slider"></span></span>
+      </div>
+      <div class="setting">
+        <label for="opt-mass">Masse auf Zellen</label>
+        <span class="switch"><input type="checkbox" id="opt-mass" /><span class="slider"></span></span>
+      </div>
+      <button id="settings-close">Schließen</button>
+    </div>
+  </div>
+
+  <div id="stats-overlay" class="overlay hidden">
+    <div class="card wide">
+      <h2>📊 Statistiken</h2>
+      <div class="stat-grid" id="stat-grid"></div>
+      <h2>🏅 Erfolge</h2>
+      <div class="ach-grid" id="ach-grid"></div>
+      <button id="stats-close">Schließen</button>
     </div>
   </div>
 

@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { WORLD_HALF, GRID_DIVISIONS, START_MASS, clamp } from './constants.js';
 import { Game } from './game.js';
-import { initSound, sounds } from './sound.js';
+import { initSound, sounds, setVolume, setSoundEnabled } from './sound.js';
 import { SKINS } from './skins.js';
+import { loadStats, recordRound, STAT_ROWS } from './stats.js';
+import { ACHIEVEMENTS, loadUnlocked, checkAchievements } from './achievements.js';
+import { loadSettings, saveSettings } from './settings.js';
 
 // Auswählbare Spielerfarben
 const COLOR_PALETTE = [
@@ -187,18 +190,37 @@ SKINS.forEach((emoji) => {
   skinSwatches.appendChild(el);
 });
 
+// Spielmodus-Auswahl (Klassisch / Battle Royale)
+let selectedMode = localStorage.getItem('agar-mode') === 'battleroyale' ? 'battleroyale' : 'classic';
+const modeSelect = document.getElementById('mode-select');
+function refreshModeButtons() {
+  modeSelect.querySelectorAll('.mode-btn').forEach((b) => {
+    b.classList.toggle('sel', b.dataset.mode === selectedMode);
+  });
+}
+modeSelect.querySelectorAll('.mode-btn').forEach((b) => {
+  b.addEventListener('click', () => {
+    selectedMode = b.dataset.mode;
+    localStorage.setItem('agar-mode', selectedMode);
+    refreshModeButtons();
+  });
+});
+refreshModeButtons();
+
 function startGame() {
   const name = nameInput.value.trim() || 'Namenloser Blob';
   initSound(); // braucht eine Nutzer-Geste, deshalb hier
-  game.spawnPlayer(name, new THREE.Color(selectedColor), selectedSkin);
+  game.spawnPlayer(name, new THREE.Color(selectedColor), selectedSkin, selectedMode);
   startOverlay.classList.add('hidden');
   deathOverlay.classList.add('hidden');
+  document.getElementById('victory-overlay').classList.add('hidden');
   // Fokus vom Button nehmen, damit Leertaste/Enter ihn nicht erneut auslösen
   document.activeElement?.blur();
 }
 
 document.getElementById('play-btn').addEventListener('click', startGame);
 document.getElementById('respawn-btn').addEventListener('click', startGame);
+document.getElementById('victory-btn').addEventListener('click', startGame);
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') startGame();
   e.stopPropagation();
@@ -215,6 +237,20 @@ function showStartHighscore() {
   document.getElementById('start-highscore').classList.remove('hidden');
 }
 showStartHighscore();
+
+// Verbucht eine beendete Runde in Statistik & Erfolgen und zeigt Erfolg-Toasts.
+function finishRound(stats, won) {
+  const s = recordRound(stats, won);
+  const fresh = checkAchievements({
+    maxMass: stats.maxMass,
+    cellsEaten: stats.cellsEaten,
+    timeAlive: stats.timeAlive,
+    virusShots: stats.virusShots || 0,
+    won,
+    gamesPlayed: s.gamesPlayed,
+  });
+  fresh.forEach((a, i) => setTimeout(() => showAchievementToast(a), 600 + i * 900));
+}
 
 game.onPlayerDeath = (stats) => {
   sounds.death();
@@ -233,6 +269,22 @@ game.onPlayerDeath = (stats) => {
   document.getElementById('death-highscore').textContent = highscore;
   document.getElementById('new-record').classList.toggle('hidden', !isRecord);
   deathOverlay.classList.remove('hidden');
+  finishRound(stats, false);
+};
+
+game.onVictory = (stats) => {
+  sounds.powerup();
+  document.getElementById('v-final-mass').textContent = stats.mass;
+  document.getElementById('v-best-mass').textContent = stats.maxMass;
+  document.getElementById('v-cells-eaten').textContent = stats.cellsEaten;
+  document.getElementById('v-time-alive').textContent = `${stats.timeAlive}s`;
+  if (stats.maxMass > highscore) {
+    highscore = stats.maxMass;
+    localStorage.setItem(HIGHSCORE_KEY, String(highscore));
+    showStartHighscore();
+  }
+  document.getElementById('victory-overlay').classList.remove('hidden');
+  finishRound(stats, true);
 };
 
 // ---------- Sound-Ereignisse ----------
@@ -308,12 +360,116 @@ function drawMinimap() {
   const playerStyle = `#${game.playerColor.getHexString()}`;
   for (const c of game.playerCells()) drawMinimapDot(mapX(c.x), mapY(c.y), 3, playerStyle);
 
+  // Battle-Royale-Zone
+  if (game.mode === 'battleroyale') {
+    const zr = (game.zone.r / (2 * WORLD_HALF)) * size;
+    minimapCtx.strokeStyle = '#ff3b3b';
+    minimapCtx.lineWidth = 1.5;
+    minimapCtx.beginPath();
+    minimapCtx.arc(mapX(0), mapY(0), zr, 0, Math.PI * 2);
+    minimapCtx.stroke();
+  }
+
   // Aktueller Kameraausschnitt
   const aspect = window.innerWidth / window.innerHeight;
   const w = (viewH * aspect / (2 * WORLD_HALF)) * size;
   const h = (viewH / (2 * WORLD_HALF)) * size;
   minimapCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+  minimapCtx.lineWidth = 1;
   minimapCtx.strokeRect(mapX(camX) - w / 2, mapY(camY) - h / 2, w, h);
+}
+
+// ---------- Erfolge, Einstellungen, Statistik ----------
+
+const toastsEl = document.getElementById('toasts');
+
+function showAchievementToast(a) {
+  sounds.achievement();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span class="t-icon">${a.icon}</span><span>Erfolg freigeschaltet!<span class="t-sub">${a.name}</span></span>`;
+  toastsEl.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// Einstellungen laden und auf Spiel/Sound anwenden
+const settings = loadSettings();
+
+function applySettings() {
+  setVolume(settings.volume / 100);
+  setSoundEnabled(settings.sfx);
+  game.settings.wobble = settings.wobble;
+  game.settings.massLabels = settings.massLabels;
+  game.particles.enabled = settings.particles;
+  minimap.style.display = settings.minimap ? '' : 'none';
+}
+
+function bindToggle(id, key) {
+  const el = document.getElementById(id);
+  el.checked = settings[key];
+  el.addEventListener('change', () => {
+    settings[key] = el.checked;
+    saveSettings(settings);
+    applySettings();
+  });
+}
+
+const volEl = document.getElementById('opt-volume');
+volEl.value = settings.volume;
+volEl.addEventListener('input', () => {
+  settings.volume = Number(volEl.value);
+  saveSettings(settings);
+  applySettings();
+});
+bindToggle('opt-sfx', 'sfx');
+bindToggle('opt-wobble', 'wobble');
+bindToggle('opt-particles', 'particles');
+bindToggle('opt-minimap', 'minimap');
+bindToggle('opt-mass', 'massLabels');
+applySettings();
+
+const settingsOverlay = document.getElementById('settings-overlay');
+document.getElementById('settings-btn').addEventListener('click', () => {
+  settingsOverlay.classList.remove('hidden');
+});
+document.getElementById('settings-close').addEventListener('click', () => {
+  settingsOverlay.classList.add('hidden');
+});
+
+// Statistik-Overlay befüllen und öffnen
+const statsOverlay = document.getElementById('stats-overlay');
+function openStats() {
+  const s = loadStats();
+  const grid = document.getElementById('stat-grid');
+  grid.innerHTML = '';
+  for (const [key, label, fmt] of STAT_ROWS) {
+    const v = fmt ? fmt(s[key]) : s[key];
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="s-label">${label}</div><div class="s-value">${v}</div>`);
+  }
+  const unlocked = loadUnlocked();
+  const ag = document.getElementById('ach-grid');
+  ag.innerHTML = '';
+  for (const a of ACHIEVEMENTS) {
+    ag.insertAdjacentHTML('beforeend',
+      `<div class="ach ${unlocked.has(a.id) ? 'unlocked' : ''}"><span>${a.icon}</span><span class="ach-name">${a.name}</span></div>`);
+  }
+  statsOverlay.classList.remove('hidden');
+}
+document.getElementById('stats-link').addEventListener('click', openStats);
+document.getElementById('stats-close').addEventListener('click', () => {
+  statsOverlay.classList.add('hidden');
+});
+
+// Gefahren-Vignette: rot aufleuchten, wenn eine Spielerzelle außerhalb der Zone ist
+const dangerEl = document.getElementById('danger-vignette');
+function updateDanger() {
+  let danger = false;
+  if (game.mode === 'battleroyale' && game.playerAlive) {
+    const r2 = game.zone.r * game.zone.r;
+    danger = game.playerCells().some((c) => c.x * c.x + c.y * c.y > r2);
+  }
+  dangerEl.classList.toggle('on', danger);
 }
 
 let leaderboardTimer = 0;
@@ -360,6 +516,7 @@ function loop() {
   updateCamera(dt);
   updateHUD(dt);
   updateEffects();
+  updateDanger();
   drawMinimap();
   renderer.render(scene, camera);
 }

@@ -11,6 +11,7 @@ import {
   BOT_COUNT, BOT_RESPAWN_DELAY, BOT_NAMES, MAX_BOT_CELLS,
   POWERUP_COUNT, POWERUP_RADIUS, POWERUP_RESPAWN, POWERUP_MIN_MASS,
   BOOST_DURATION, BOOST_SPEED_MULT, SHIELD_DURATION,
+  ZONE_START, ZONE_MIN, ZONE_SHRINK_INTERVAL, ZONE_SHRINK_STEP, ZONE_DAMAGE,
   randomCellColor, randomWorldPos, clamp,
 } from './constants.js';
 import { FoodPool } from './food.js';
@@ -18,7 +19,7 @@ import { ParticlePool } from './particles.js';
 import { SKINS } from './skins.js';
 import {
   makeCellView, disposeCellView, makeVirusView, setLabelOrder, updateCellWobble,
-  makePowerupView, disposePowerupView,
+  makePowerupView, disposePowerupView, makeZoneView, updateMassLabel,
 } from './cell.js';
 
 let nextId = 1;
@@ -45,6 +46,13 @@ export class Game {
     this.effects = new Map(); // ownerKey -> { speedUntil, shieldUntil }
     this.nextPowerupAt = 0;
 
+    // Battle Royale
+    this.mode = 'classic';
+    this.zone = { r: ZONE_START, targetR: ZONE_START, nextShrinkAt: 0 };
+    this.zoneView = makeZoneView(scene);
+    this.roundEnded = false;
+    this.onVictory = null;
+
     this.playerAlive = false;
     this.playerName = '';
     this.playerColor = randomCellColor();
@@ -55,10 +63,14 @@ export class Game {
     this.spawnTime = 0;
     this.cellsEaten = 0;
     this.foodEaten = 0;
+    this.playerVirusShots = 0;
     this.lastKiller = null;
     this.onPlayerDeath = null;
     this.onEvent = null;
     this.onKill = null;
+
+    // Aus den Einstellungen steuerbare Optik-Flags
+    this.settings = { wobble: true, massLabels: false };
 
     for (let i = 0; i < FOOD_COUNT; i++) this.food.spawnRandom();
 
@@ -129,6 +141,8 @@ export class Game {
           maxMass: Math.round(this.maxMass),
           timeAlive: Math.round(this.time - this.spawnTime),
           cellsEaten: this.cellsEaten,
+          foodEaten: this.foodEaten,
+          virusShots: this.playerVirusShots,
           killer: this.lastKiller,
         });
       }
@@ -187,9 +201,20 @@ export class Game {
     return this.findSafeSpawn();
   }
 
-  spawnPlayer(name, color = null, skin = '') {
+  spawnPlayer(name, color = null, skin = '', mode = 'classic') {
     // silent: Aufräumen alter Zellen darf nicht den Tod-Callback (Death-Overlay) auslösen
     for (const c of this.playerCells()) this.removeCell(c, true);
+    this.mode = mode;
+    this.roundEnded = false;
+    if (mode === 'battleroyale') {
+      this.zone.r = this.zone.targetR = ZONE_START;
+      this.zone.nextShrinkAt = this.time + ZONE_SHRINK_INTERVAL;
+      // Vollständiges Feld: tote Bots sofort wiederbeleben
+      for (const bot of this.bots) {
+        if (!this.cells.some((c) => c.owner === bot)) this.spawnBot(bot);
+      }
+    }
+    this.zoneView.line.visible = mode === 'battleroyale';
     this.playerName = name;
     this.playerColor = color || randomCellColor();
     this.playerSkin = skin;
@@ -205,6 +230,7 @@ export class Game {
     this.spawnTime = this.time;
     this.cellsEaten = 0;
     this.foodEaten = 0;
+    this.playerVirusShots = 0;
     this.lastKiller = null;
   }
 
@@ -310,10 +336,12 @@ export class Game {
     this.eatCells();
     this.updateViruses(dt);
     this.updatePowerups(dt);
+    if (this.mode === 'battleroyale') this.updateZone(dt);
     this.applyDecay(dt);
     this.respawnFood(dt);
     this.respawnBots();
     this.syncViews(dt);
+    if (this.mode === 'battleroyale') this.checkVictory();
 
     if (this.playerAlive) {
       this.lastPlayerMass = this.playerMass();
@@ -503,11 +531,15 @@ export class Game {
           virus.dirX = f.vx[i] / speed;
           virus.dirY = f.vy[i] / speed;
         }
+        const fedByPlayer = f.ownerKey[i] === 'player';
         f.kill(i);
         virus.fed++;
         if (virus.fed >= VIRUS_FEED_COUNT) {
           virus.fed = 0;
-          if (this.viruses.length < VIRUS_MAX) this.shootVirus(virus);
+          if (this.viruses.length < VIRUS_MAX) {
+            this.shootVirus(virus);
+            if (fedByPlayer) this.playerVirusShots++;
+          }
         }
       });
     }
@@ -611,12 +643,54 @@ export class Game {
     }
   }
 
+  // ---------- Battle Royale ----------
+
+  updateZone(dt) {
+    const z = this.zone;
+    // Zielradius stufenweise verkleinern, aktuellen Radius sanft nachführen
+    if (this.time >= z.nextShrinkAt && z.targetR > ZONE_MIN) {
+      z.targetR = Math.max(ZONE_MIN, z.targetR - ZONE_SHRINK_STEP);
+      z.nextShrinkAt = this.time + ZONE_SHRINK_INTERVAL;
+    }
+    z.r += (z.targetR - z.r) * Math.min(1, dt * 0.6);
+
+    // Schaden außerhalb der Zone; kleine Zellen sterben
+    const r2 = z.r * z.r;
+    for (const cell of [...this.cells]) {
+      if (cell.x * cell.x + cell.y * cell.y <= r2) continue;
+      cell.mass -= ZONE_DAMAGE * dt;
+      if (cell.mass <= 8) {
+        if (cell.ownerKey === 'player') this.onEvent?.('death');
+        this.particles?.burst(cell.x, cell.y, cell.color, 12);
+        this.removeCell(cell);
+      }
+    }
+  }
+
+  checkVictory() {
+    if (this.roundEnded || !this.playerAlive) return;
+    // Sieg, wenn nur noch Spielerzellen übrig sind
+    if (!this.cells.some((c) => c.ownerKey !== 'player')) {
+      this.roundEnded = true;
+      this.onVictory?.({
+        mass: Math.round(this.playerMass()),
+        maxMass: Math.round(this.maxMass),
+        timeAlive: Math.round(this.time - this.spawnTime),
+        cellsEaten: this.cellsEaten,
+        foodEaten: this.foodEaten,
+        virusShots: this.playerVirusShots,
+      });
+    }
+  }
+
   respawnFood(dt) {
     let budget = Math.ceil(dt * 30);
     while (this.food.baseAlive < FOOD_COUNT && budget-- > 0) this.food.spawnRandom();
   }
 
   respawnBots() {
+    // Im Battle Royale gibt es kein Nachspawnen — letzter Überlebender gewinnt
+    if (this.mode === 'battleroyale') return;
     for (const bot of this.bots) {
       if (this.time >= bot.respawnAt && !this.cells.some((c) => c.owner === bot)) {
         this.spawnBot(bot);
@@ -725,6 +799,12 @@ export class Game {
         }
       }
 
+      // Im Battle Royale zur Mitte steuern, wenn die größte Zelle nah am Zonenrand ist
+      if (this.mode === 'battleroyale' && Math.hypot(c.x, c.y) > this.zone.r * 0.82) {
+        tx = 0;
+        ty = 0;
+      }
+
       for (const cell of cells) {
         cell.tx = tx;
         cell.ty = ty;
@@ -750,9 +830,16 @@ export class Game {
   // ---------- Rendering-Sync ----------
 
   syncViews(dt) {
+    // Masse-Labels nur ~alle 0.3s aktualisieren
+    this.massLabelTick = (this.massLabelTick ?? 0) - dt;
+    const refreshMass = this.settings.massLabels && this.massLabelTick <= 0;
+    if (refreshMass) this.massLabelTick = 0.3;
+
     for (const cell of this.cells) {
       const v = cell.view;
-      updateCellWobble(v, this.time);
+      if (this.settings.wobble) updateCellWobble(v, this.time);
+      if (refreshMass) updateMassLabel(v, cell.mass, true);
+      else if (!this.settings.massLabels && v.massLabel.visible) updateMassLabel(v, 0, false);
       // Radius sanft zum Sollwert animieren (weiches Wachsen/Schrumpfen)
       cell.displayR += (cell.r - cell.displayR) * Math.min(1, dt * 8);
       // Größere Zellen leicht höher, damit sie kleinere überdecken
@@ -787,6 +874,9 @@ export class Game {
     for (const p of this.powerups) {
       p.view.group.position.set(p.x, p.y, 0.6);
       p.view.group.scale.setScalar(p.r * pulse);
+    }
+    if (this.mode === 'battleroyale') {
+      this.zoneView.line.scale.setScalar(this.zone.r);
     }
   }
 

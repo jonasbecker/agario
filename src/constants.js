@@ -41,6 +41,13 @@ export const VIRUS_FEED_COUNT = 7;       // so oft füttern, bis der Virus schie
 export const VIRUS_MAX = 20;             // Obergrenze für abgeschossene Viren
 export const VIRUS_SHOT_IMPULSE = 900;
 
+// Battle Royale
+export const ZONE_START = 2900;          // Anfangsradius (deckt die ganze Welt)
+export const ZONE_MIN = 260;             // kleinster Zonenradius
+export const ZONE_SHRINK_INTERVAL = 11;  // s zwischen zwei Schrumpfstufen
+export const ZONE_SHRINK_STEP = 360;     // um so viel schrumpft die Zielgröße
+export const ZONE_DAMAGE = 20;           // Masse/s Schaden außerhalb der Zone
+
 // Power-ups
 export const POWERUP_COUNT = 5;          // gleichzeitig in der Welt
 export const POWERUP_RADIUS = 26;

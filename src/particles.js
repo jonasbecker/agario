@@ -7,6 +7,7 @@ const _dummy = new THREE.Object3D();
 export class ParticlePool {
   constructor(scene, capacity = 256) {
     this.capacity = capacity;
+    this.enabled = true; // aus den Einstellungen steuerbar
     const geo = new THREE.CircleGeometry(1, 8);
     this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial(), capacity);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -40,6 +41,7 @@ export class ParticlePool {
   }
 
   burst(x, y, color, count = 10, speed = 220) {
+    if (!this.enabled) return;
     const n = Math.round(count);
     for (let k = 0; k < n; k++) {
       const i = this.cursor;
@@ -55,6 +57,7 @@ export class ParticlePool {
   // Gleichmäßig nach außen fliegende Partikel — liest sich als Schockwellen-Ring.
   // Startradius setzt die Partikel schon auf den Zellrand (r0), damit der Ring passt.
   ring(x, y, color, r0 = 0, count = 24, speed = 260) {
+    if (!this.enabled) return;
     const n = Math.round(count);
     for (let k = 0; k < n; k++) {
       const i = this.cursor;

@@ -1,6 +1,16 @@
 // Synthetisierte Sound-Effekte über WebAudio — keine Audiodateien nötig.
 
 let ctx = null;
+let masterVol = 0.7; // 0..1, aus den Einstellungen
+let enabled = true;
+
+export function setVolume(v) {
+  masterVol = Math.max(0, Math.min(1, v));
+}
+
+export function setSoundEnabled(b) {
+  enabled = b;
+}
 
 // Muss aus einer Nutzer-Geste heraus aufgerufen werden (Klick auf "Spielen"),
 // sonst blockiert der Browser den AudioContext.
@@ -14,14 +24,14 @@ export function initSound() {
 }
 
 function blip(freq, dur, { type = 'sine', vol = 0.15, slide = 0 } = {}) {
-  if (!ctx || ctx.state !== 'running') return;
+  if (!ctx || ctx.state !== 'running' || !enabled || masterVol <= 0) return;
   const t = ctx.currentTime;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t);
   if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
-  gain.gain.setValueAtTime(vol, t);
+  gain.gain.setValueAtTime(vol * masterVol, t);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   osc.connect(gain).connect(ctx.destination);
   osc.start(t);
