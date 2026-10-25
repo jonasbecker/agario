@@ -1,118 +1,260 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Agar Klon</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
-    #app { position: fixed; inset: 0; }
-    canvas { display: block; }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}body{margin:0}</style>
+<title>Satzpause</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#101312">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;600&display=swap">
+<style>
+  /* Layout: one-screen, thumb-first. Big ring on top, presets + main action at the bottom. */
+  :root {
+    --bg: #101312;          /* rubber-mat black */
+    --surface: #1b201e;
+    --line: #2c3431;
+    --fg: #eef2ef;
+    --muted: #8c9993;
+    --accent: #f5c518;      /* plate yellow */
+    --go: #3ddc84;
+    --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --body: "Barlow", system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px;
+    -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+  }
+  .app {
+    height: 100%; box-sizing: border-box; max-width: 480px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 18px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 14px 18px;
+  }
+  header { display: flex; justify-content: space-between; align-items: baseline; }
+  h1 { font-family: var(--display); font-weight: 800; font-size: 1.6rem; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+  .sets { font-family: var(--display); font-weight: 600; font-size: 1.15rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sets b { color: var(--fg); font-size: 1.5rem; }
 
-    .panel {
-      background: rgba(20, 30, 40, 0.55);
-      color: #fff;
-      border-radius: 10px;
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-    }
+  .ring-wrap { flex: 1; min-height: 0; display: grid; place-items: center; }
+  .ring { position: relative; width: min(78vw, 46vh, 360px); aspect-ratio: 1; max-width: 100%; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 7; }
+  .track { stroke: var(--line); }
+  .prog { stroke: var(--accent); stroke-linecap: round; transition: stroke .3s; }
+  .ring.done .prog { stroke: var(--go); }
+  .readout { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 2px; }
+  .time { font-family: var(--display); font-weight: 800; font-size: clamp(4rem, 22vw, 7.5rem); line-height: .9; font-variant-numeric: tabular-nums; }
+  .ring.done .time { color: var(--go); }
+  .state { font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 
-    #score {
-      position: fixed; left: 16px; bottom: 16px;
-      padding: 10px 18px; font-size: 18px; font-weight: 600;
-      pointer-events: none;
-    }
-
-    #leaderboard {
-      position: fixed; right: 16px; top: 16px;
-      padding: 12px 16px; min-width: 190px;
-      pointer-events: none;
-    }
-    #leaderboard h3 { font-size: 15px; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
-    #leaderboard ol { list-style: none; font-size: 13px; line-height: 1.7; }
-    #leaderboard li { display: flex; justify-content: space-between; gap: 12px; opacity: 0.9; }
-    #leaderboard li.me { color: #7fdc66; font-weight: 700; opacity: 1; }
-    #leaderboard li .rank { opacity: 0.6; margin-right: 6px; }
-
-    .overlay {
-      position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      background: rgba(15, 25, 35, 0.55);
-      z-index: 10;
-    }
-    .overlay.hidden { display: none; }
-
-    .card {
-      background: #fff; border-radius: 16px; padding: 36px 44px;
-      text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
-      max-width: 380px; width: calc(100% - 40px);
-    }
-    .card h1 { font-size: 34px; margin-bottom: 6px; color: #263238; }
-    .card h1 .green { color: #43a047; }
-    .card p.sub { color: #78909c; margin-bottom: 22px; font-size: 14px; }
-    .card input {
-      width: 100%; padding: 12px 14px; font-size: 16px;
-      border: 2px solid #cfd8dc; border-radius: 8px; outline: none;
-      margin-bottom: 14px; text-align: center;
-    }
-    .card input:focus { border-color: #43a047; }
-    .card button {
-      width: 100%; padding: 13px; font-size: 17px; font-weight: 700;
-      color: #fff; background: #43a047; border: none; border-radius: 8px;
-      cursor: pointer; transition: background 0.15s;
-    }
-    .card button:hover { background: #388e3c; }
-    .card .controls {
-      margin-top: 20px; font-size: 13px; color: #607d8b;
-      display: flex; flex-direction: column; gap: 6px; text-align: left;
-    }
-    .card .controls kbd {
-      background: #eceff1; border: 1px solid #cfd8dc; border-bottom-width: 2px;
-      border-radius: 4px; padding: 1px 7px; font-size: 12px; font-family: inherit;
-    }
-    .card .stats { margin: 6px 0 20px; color: #455a64; font-size: 15px; line-height: 1.9; }
-    .card .stats b { color: #263238; }
-  </style>
+  .adjust { display: flex; justify-content: center; gap: 12px; }
+  .presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 0; font-family: var(--display); font-weight: 600; font-size: 1.15rem; font-variant-numeric: tabular-nums;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .adjust .chip { padding: 10px 22px; }
+  .main {
+    background: var(--accent); color: #141414; border-radius: 14px; padding: 22px 0;
+    font-family: var(--display); font-weight: 800; font-size: 1.7rem; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .main.stop { background: var(--surface); color: var(--fg); border: 1px solid var(--line); }
+  .main:active, .chip:active { transform: scale(.98); }
+  .foot { display: flex; justify-content: space-between; align-items: center; font-size: .85rem; color: var(--muted); }
+  .link { background: none; color: var(--muted); text-decoration: underline; padding: 6px 0; font-size: .85rem; }
+  @media (prefers-reduced-motion: reduce) { .main:active, .chip:active { transform: none; } .prog { transition: none; } }
+</style>
 </head>
 <body>
-  <div id="app"></div>
 
-  <div id="score" class="panel">Masse: <span id="score-value">0</span></div>
+<div class="app">
+  <header>
+    <h1>Satzpause</h1>
+    <div class="sets">Satz <b id="setNo">1</b></div>
+  </header>
 
-  <div id="leaderboard" class="panel">
-    <h3>BESTENLISTE</h3>
-    <ol id="leaderboard-list"></ol>
-  </div>
-
-  <div id="start-overlay" class="overlay">
-    <div class="card">
-      <h1>Agar <span class="green">Klon</span></h1>
-      <p class="sub">Friss oder werde gefressen</p>
-      <input id="name-input" type="text" maxlength="15" placeholder="Dein Name" autocomplete="off" />
-      <button id="play-btn">Spielen</button>
-      <div class="controls">
-        <div>🖱️ <b>Maus</b> — bewegen</div>
-        <div><kbd>Leertaste</kbd> — teilen</div>
-        <div><kbd>W</kbd> — Masse abgeben</div>
-        <div>🛡️ 3 Sekunden Spawnschutz</div>
-        <div>⚠️ Grüne Viren zerplatzen große Zellen!</div>
+  <div class="ring-wrap">
+    <div class="ring" id="ring">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="track" cx="50" cy="50" r="45"></circle>
+        <circle class="prog" id="prog" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="0"></circle>
+      </svg>
+      <div class="readout">
+        <div class="time" id="time" aria-live="off">1:30</div>
+        <div class="state" id="state">Bereit</div>
       </div>
     </div>
   </div>
 
-  <div id="death-overlay" class="overlay hidden">
-    <div class="card">
-      <h1>Gefressen! 💀</h1>
-      <div class="stats">
-        Endmasse: <b id="final-mass">0</b><br />
-        Größte Masse: <b id="best-mass">0</b><br />
-        Überlebt: <b id="time-alive">0s</b>
-      </div>
-      <button id="respawn-btn">Nochmal spielen</button>
-    </div>
+  <div class="adjust">
+    <button class="chip" id="minus" type="button">−15 s</button>
+    <button class="chip" id="plus" type="button">+15 s</button>
   </div>
 
-  <script type="module" src="/src/main.js"></script>
+  <div class="presets" id="presets">
+    <button class="chip" type="button" data-s="60">1:00</button>
+    <button class="chip" type="button" data-s="90">1:30</button>
+    <button class="chip" type="button" data-s="120">2:00</button>
+    <button class="chip" type="button" data-s="180">3:00</button>
+  </div>
+
+  <button class="main" id="main" type="button">Satz fertig – Pause</button>
+
+  <div class="foot">
+    <button class="link" id="test" type="button">Ton testen</button>
+    <button class="link" id="reset" type="button">Sätze zurücksetzen</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const CIRC = 282.74;
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  let rest = store.get('rest', 90);
+  let setNo = store.get('setNo', 1);
+  let endAt = 0, total = rest, tick = null, scheduled = [];
+  let ctx = null, keepAlive = null, wakeLock = null;
+
+  // ---------- Audio ----------
+  function initAudio() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+      // Silent looping <audio> keeps iOS from muting Web Audio and keeps the session alive.
+      keepAlive = new Audio(silentWav());
+      keepAlive.loop = true;
+      keepAlive.volume = 0.01;
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    keepAlive.play().catch(() => {});
+  }
+  function silentWav() {
+    const sr = 8000, n = sr, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    w(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  // Beeps are scheduled on the audio clock, so they fire on time even if the screen dims and JS is throttled.
+  function beep(at, freq, dur, vol = 0.5) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.01);
+    g.gain.setValueAtTime(vol, at + dur - 0.04);
+    g.gain.linearRampToValueAtTime(0, at + dur);
+    o.connect(g).connect(ctx.destination);
+    o.start(at); o.stop(at + dur + 0.02);
+    scheduled.push(o);
+  }
+  function scheduleSignals(secs) {
+    const t0 = ctx.currentTime;
+    if (secs > 12) beep(t0 + secs - 10, 660, 0.12, 0.3);          // 10 s vorher: leiser Hinweis
+    for (let i = 3; i >= 1; i--) if (secs > i) beep(t0 + secs - i, 880, 0.12);
+    beep(t0 + secs, 1320, 0.25); beep(t0 + secs + 0.3, 1320, 0.45); // Los!
+  }
+  function cancelSignals() {
+    scheduled.forEach(o => { try { o.stop(); } catch {} });
+    scheduled = [];
+  }
+
+  // ---------- Wake lock ----------
+  async function lockScreen() {
+    try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); } } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && endAt) { lockScreen(); render(); } });
+
+  // ---------- Timer ----------
+  const fmt = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  function running() { return endAt > 0; }
+
+  function start() {
+    initAudio(); lockScreen();
+    cancelSignals();
+    total = rest;
+    endAt = Date.now() + rest * 1000;
+    scheduleSignals(rest);
+    $('ring').classList.remove('done');
+    clearInterval(tick); tick = setInterval(render, 200);
+    render();
+  }
+  function stop(finished) {
+    clearInterval(tick); tick = null;
+    if (!finished) cancelSignals();
+    endAt = 0;
+    if (finished) {
+      setNo++; store.set('setNo', setNo);
+      $('ring').classList.add('done');
+      if (navigator.vibrate) navigator.vibrate([200, 100, 400]);
+    }
+    render(finished);
+  }
+  function adjust(delta) {
+    if (running()) {
+      const left = Math.max(1, Math.ceil((endAt - Date.now()) / 1000) + delta);
+      cancelSignals();
+      endAt = Date.now() + left * 1000;
+      total = Math.max(total + delta, left);
+      scheduleSignals(left);
+      render();
+    } else {
+      rest = Math.min(600, Math.max(15, rest + delta));
+      store.set('rest', rest); render();
+    }
+  }
+
+  function render(justFinished) {
+    let left, frac;
+    if (running()) {
+      left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      frac = (endAt - Date.now()) / (total * 1000);
+      if (left === 0) return stop(true);
+      $('state').textContent = left <= 10 ? 'Gleich los' : 'Pause';
+      $('main').textContent = 'Pause abbrechen';
+      $('main').classList.add('stop');
+    } else {
+      left = rest; frac = justFinished ? 0 : 1;
+      $('state').textContent = justFinished ? 'Los geht’s!' : 'Bereit';
+      $('main').textContent = 'Satz fertig – Pause';
+      $('main').classList.remove('stop');
+    }
+    $('time').textContent = justFinished ? 'LOS' : fmt(left);
+    $('prog').style.strokeDashoffset = CIRC * (1 - Math.max(0, Math.min(1, frac)));
+    $('setNo').textContent = setNo;
+    document.querySelectorAll('#presets .chip').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.s === rest)));
+  }
+
+  // ---------- Events ----------
+  $('main').addEventListener('click', () => running() ? stop(false) : start());
+  $('plus').addEventListener('click', () => adjust(15));
+  $('minus').addEventListener('click', () => adjust(-15));
+  $('presets').addEventListener('click', e => {
+    const b = e.target.closest('[data-s]'); if (!b) return;
+    rest = +b.dataset.s; store.set('rest', rest);
+    if (running()) start(); else { $('ring').classList.remove('done'); render(); }
+  });
+  $('test').addEventListener('click', () => { initAudio(); const t = ctx.currentTime + 0.05; beep(t, 880, 0.12); beep(t + 0.5, 1320, 0.25); beep(t + 0.8, 1320, 0.45); });
+  $('reset').addEventListener('click', () => { setNo = 1; store.set('setNo', 1); render(); });
+
+  render();
+})();
+</script>
 </body>
 </html>

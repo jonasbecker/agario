@@ -1,46 +1,10 @@
-# Agar Klon
+# Satzpause
 
-Ein Agar.io-Klon mit [three.js](https://threejs.org/) — Singleplayer gegen KI-Bots.
+Simpler Pausen-Timer fürs Gym, gebaut fürs Handy. Nach jedem Satz auf **„Satz fertig – Pause“** tippen – die App piept über die Kopfhörer:
 
-![Spiel](https://img.shields.io/badge/three.js-orthografisch%202D-green)
+- 10 s vor Ende ein leiser Hinweiston
+- 3 – 2 – 1 Countdown-Piepser
+- Doppelton = nächster Satz
 
-## Spielen
-
-```bash
-npm install
-npm run dev
-```
-
-Dann http://localhost:5173 öffnen.
-
-## Steuerung
-
-| Eingabe | Aktion |
-| --- | --- |
-| Maus | Zelle bewegen |
-| Leertaste | Teilen (bis 16 Zellen, verschmelzen nach Cooldown) |
-| W | Masse abgeben |
-
-## Features
-
-- 14 KI-Bots mit zufälliger Aggressions-Persönlichkeit (jagen, fliehen, grasen)
-- 1000 Futter-Pellets als InstancedMesh (ein Draw-Call)
-- Grüne Viren, die große Zellen zerplatzen lassen
-- Splitten, Masse ausstoßen, Wiederverschmelzen wie im Original
-- 3 Sekunden Spawnschutz, sichere Spawnpunkte
-- Automatischer Kamera-Zoom, Live-Bestenliste, Death-Screen mit Statistik
-
-## Tuning
-
-Alle Stellschrauben (Tempo, Weltgröße, Bot-Anzahl, Futterwerte, Schutzdauer …)
-liegen gesammelt in [`src/constants.js`](src/constants.js).
-
-## Architektur
-
-| Datei | Zuständigkeit |
-| --- | --- |
-| `src/main.js` | Renderer, Kamera, Eingabe, HUD, Spielschleife |
-| `src/game.js` | Spiellogik: Fressen, Splitten, Viren, Bot-KI |
-| `src/food.js` | Futter-Pool (InstancedMesh) |
-| `src/cell.js` | Zell-Optik, Namensschilder, Virus-Geometrie |
-| `src/constants.js` | Alle Spielparameter |
+Pausenlänge per Preset (1:00 / 1:30 / 2:00 / 3:00) oder ±15 s, Sätze werden mitgezählt.
+Eine einzige Datei: `index.html` – einfach im Handy-Browser öffnen (z. B. über GitHub Pages).
